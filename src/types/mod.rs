@@ -1,6 +1,5 @@
+mod clocks;
 mod gset;
-mod hlc;
 mod register;
-mod vclock;
 
-pub use {gset::GSet, hlc::HLC, register::Register, vclock::VClock};
+pub use {clocks::*, gset::GSet, register::Register};
