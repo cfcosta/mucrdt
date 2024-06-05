@@ -116,4 +116,16 @@ mod tests {
         let b = Timestamp::from_millis(a.as_millis()).unwrap();
         prop_assert_eq!(a, b);
     }
+    #[proptest(fork = false)]
+    fn test_as_millis_never_fail_for_valid_timestamps(a: Timestamp) {
+        prop_assert!(Timestamp::from_millis(a.as_millis()).is_some());
+    }
+
+    #[proptest(fork = false)]
+    fn test_to_millis_equality(a: Timestamp, b: Timestamp) {
+        let aa = Timestamp::from_millis(a.as_millis());
+        let bb = Timestamp::from_millis(b.as_millis());
+
+        prop_assert_eq!(a == b, aa == bb);
+    }
 }
