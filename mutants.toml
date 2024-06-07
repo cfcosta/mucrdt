@@ -1,1 +1,2 @@
 exclude_globs = ["src/testing.rs"]
+test_tool = "nextest"
