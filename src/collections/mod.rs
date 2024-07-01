@@ -1,3 +1,3 @@
-mod gset;
+mod set;
 
-pub use gset::GSet;
+pub use set::Set;

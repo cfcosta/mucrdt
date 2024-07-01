@@ -5,11 +5,11 @@ use proptest::{collection::btree_set, prelude::*};
 use crate::prelude::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GSet<T: Clone + Hash> {
+pub struct Set<T: Clone + Hash> {
     pub values: BTreeSet<T>,
 }
 
-impl<T: Clone + Hash> Default for GSet<T> {
+impl<T: Clone + Hash> Default for Set<T> {
     fn default() -> Self {
         Self {
             values: BTreeSet::new(),
@@ -17,7 +17,7 @@ impl<T: Clone + Hash> Default for GSet<T> {
     }
 }
 
-impl<T> CvRDT for GSet<T>
+impl<T> CvRDT for Set<T>
 where
     T: Arbitrary + Clone + Hash + PartialEq + Eq + Ord + 'static,
 {
@@ -32,7 +32,7 @@ where
     }
 }
 
-impl<T> CmRDT<T> for GSet<T>
+impl<T> CmRDT<T> for Set<T>
 where
     T: Arbitrary + Clone + Hash + PartialEq + Eq + Ord + 'static,
 {
@@ -45,7 +45,7 @@ where
     }
 }
 
-impl<T> Arbitrary for GSet<T>
+impl<T> Arbitrary for Set<T>
 where
     T: Arbitrary + Clone + Hash + PartialEq + Eq + Ord + 'static,
 {
@@ -61,7 +61,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    pub type GSet = super::GSet<u64>;
+    pub type GSet = super::Set<u64>;
     pub type Num = u64;
 
     crate::prelude::test_state_crdt_properties!(GSet);
