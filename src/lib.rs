@@ -2,6 +2,7 @@ mod error;
 
 pub mod collections;
 pub mod identifier;
+pub mod item;
 pub mod prelude;
 pub mod testing;
 pub mod values;
@@ -89,9 +90,9 @@ macro_rules! test_state_crdt_properties {
 macro_rules! test_op_crdt_properties_inner {
     ($type: ty, $op_type: ty) => {
         use $crate::__dependencies::proptest::prelude::*;
-        use $crate::prelude::{CmRDT, Result};
+        use $crate::prelude::{CmRDT, Item, Result};
 
-        fn build_op(items: Vec<&$op_type>) -> Result<$type> {
+        fn build_op(items: Vec<&Item<$op_type>>) -> Result<$type> {
             items
                 .into_iter()
                 .try_fold(<$type>::default(), |mut acc, el| {
@@ -101,7 +102,7 @@ macro_rules! test_op_crdt_properties_inner {
         }
 
         #[test_strategy::proptest(fork = false)]
-        fn test_imdepotence(op: $op_type) {
+        fn test_imdepotence(op: Item<$op_type>) {
             let mut a = <$type>::default();
             a.apply(&op)?;
 
@@ -112,7 +113,7 @@ macro_rules! test_op_crdt_properties_inner {
         }
 
         #[test_strategy::proptest(fork = false)]
-        fn test_commutativity(a: $op_type, b: $op_type) {
+        fn test_commutativity(a: Item<$op_type>, b: Item<$op_type>) {
             let ab = build_op(vec![&a, &b])?;
             let ba = build_op(vec![&a, &b])?;
 

@@ -3,9 +3,9 @@ use proptest::prelude::*;
 pub use blake3::{Hash, Hasher};
 
 pub use crate::{
-    collections::*, error::*, identifier::*, impl_associate_bytes_types, prop_assert_changes,
-    prop_assert_does_not_change, test_op_crdt_properties, test_state_crdt_properties,
-    test_to_bytes, test_to_hex, testing::*, values::*,
+    collections::*, error::*, identifier::*, impl_associate_bytes_types, item::*,
+    prop_assert_changes, prop_assert_does_not_change, test_op_crdt_properties,
+    test_state_crdt_properties, test_to_bytes, test_to_hex, testing::*, values::*,
 };
 
 pub trait CvRDT: Sized + Arbitrary + Default + Clone + PartialEq {
@@ -13,7 +13,7 @@ pub trait CvRDT: Sized + Arbitrary + Default + Clone + PartialEq {
 }
 
 pub trait CmRDT<T>: Sized + Arbitrary + Default + Clone + PartialEq {
-    fn apply(&mut self, other: &T) -> Result<()>;
+    fn apply(&mut self, other: &Item<T>) -> Result<()>;
 }
 
 pub trait FromBytes
