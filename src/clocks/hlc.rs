@@ -62,10 +62,10 @@ impl FromBytes for HLC {
 }
 
 impl HLC {
-    pub fn new(account: &Account, timestamp: Timestamp) -> Self {
+    pub fn new(pubkey: Pubkey, timestamp: Timestamp) -> Self {
         Self {
             timestamp,
-            pubkey: account.pubkey(),
+            pubkey,
             counter: 0,
         }
     }
@@ -220,7 +220,8 @@ mod tests {
         let accounts = any::<(Account, Account)>();
         let timestamps = (any::<Timestamp>(), delay_a, delay_b)
             .prop_map(|(ts, da, db)| (ts - Duration::from_secs(da), ts - Duration::from_secs(db)));
-        (accounts, timestamps).prop_map(|((a, b), (ta, tb))| (HLC::new(&a, ta), HLC::new(&b, tb)))
+        (accounts, timestamps)
+            .prop_map(|((a, b), (ta, tb))| (HLC::new(a.pubkey(), ta), HLC::new(b.pubkey(), tb)))
     }
 
     #[proptest(fork = false)]
@@ -303,8 +304,8 @@ mod tests {
     }
 
     #[proptest(fork = false)]
-    fn test_initialization_with_sets_count_to_zero(account: Account, timestamp: Timestamp) {
-        let a = HLC::new(&account, timestamp);
+    fn test_initialization_with_sets_count_to_zero(pubkey: Pubkey, timestamp: Timestamp) {
+        let a = HLC::new(pubkey, timestamp);
         prop_assert_eq!(a.counter, 0);
     }
 
