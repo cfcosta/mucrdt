@@ -3,8 +3,8 @@ use proptest::prelude::*;
 pub use blake3::{Hash, Hasher};
 
 pub use crate::{
-    collections::*, error::*, identifier::*, impl_associate_bytes_types, item::*,
-    prop_assert_changes, prop_assert_does_not_change, test_op_crdt_properties,
+    collections::*, conflict_strategy::*, error::*, identifier::*, impl_associate_bytes_types,
+    item::*, prop_assert_changes, prop_assert_does_not_change, test_op_crdt_properties,
     test_state_crdt_properties, test_to_bytes, test_to_hex, testing::*, values::*,
 };
 

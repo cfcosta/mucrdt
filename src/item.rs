@@ -6,8 +6,8 @@ use crate::prelude::*;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Item<T> {
-    id: Identifier,
-    value: T,
+    pub id: Identifier,
+    pub value: T,
 }
 
 impl<T: Eq> PartialOrd for Item<T> {
