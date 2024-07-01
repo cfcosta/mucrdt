@@ -11,19 +11,19 @@ use proptest::{prelude::*, strategy::BoxedStrategy};
 use crate::prelude::*;
 
 #[derive(Clone, Copy, Default)]
-pub struct HLC {
+pub struct Identifier {
     pub timestamp: Timestamp,
     pub pubkey: Pubkey,
     pub counter: u32,
 }
 
-impl_associate_bytes_types!(HLC);
+impl_associate_bytes_types!(Identifier);
 
-impl ToBytes for HLC {
+impl ToBytes for Identifier {
     type Output = [u8; 42];
 
     fn to_bytes(&self) -> Self::Output {
-        if *self == HLC::default() {
+        if *self == Identifier::default() {
             return [0u8; 42];
         }
 
@@ -37,7 +37,7 @@ impl ToBytes for HLC {
     }
 }
 
-impl FromBytes for HLC {
+impl FromBytes for Identifier {
     fn from_bytes(bytes: &[u8]) -> Result<Self> {
         let timestamp = Timestamp::from_bytes(bytes[..6].try_into().unwrap())?;
 
@@ -61,7 +61,7 @@ impl FromBytes for HLC {
     }
 }
 
-impl HLC {
+impl Identifier {
     pub fn new(pubkey: Pubkey, timestamp: Timestamp) -> Self {
         Self {
             timestamp,
@@ -106,7 +106,7 @@ impl HLC {
     }
 }
 
-impl PartialEq for HLC {
+impl PartialEq for Identifier {
     fn eq(&self, other: &Self) -> bool {
         self.timestamp == other.timestamp
             && self.counter == other.counter
@@ -114,16 +114,16 @@ impl PartialEq for HLC {
     }
 }
 
-impl Eq for HLC {}
+impl Eq for Identifier {}
 
-impl Debug for HLC {
+impl Debug for Identifier {
     #[cfg_attr(coverage_nightly, coverage(off))]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self)
     }
 }
 
-impl Display for HLC {
+impl Display for Identifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -135,7 +135,7 @@ impl Display for HLC {
     }
 }
 
-impl FromStr for HLC {
+impl FromStr for Identifier {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -162,13 +162,13 @@ impl FromStr for HLC {
     }
 }
 
-impl PartialOrd for HLC {
+impl PartialOrd for Identifier {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for HLC {
+impl Ord for Identifier {
     fn cmp(&self, other: &Self) -> Ordering {
         match (
             self.timestamp.cmp(&other.timestamp),
@@ -183,7 +183,7 @@ impl Ord for HLC {
     }
 }
 
-impl Arbitrary for HLC {
+impl Arbitrary for Identifier {
     type Parameters = ();
     type Strategy = BoxedStrategy<Self>;
 
@@ -211,27 +211,31 @@ mod tests {
 
     use crate::prelude::*;
 
-    test_to_bytes!(HLC);
+    test_to_bytes!(Identifier);
 
     fn pair(
         delay_a: impl Strategy<Value = u64>,
         delay_b: impl Strategy<Value = u64>,
-    ) -> impl Strategy<Value = (HLC, HLC)> {
+    ) -> impl Strategy<Value = (Identifier, Identifier)> {
         let accounts = any::<(Account, Account)>();
         let timestamps = (any::<Timestamp>(), delay_a, delay_b)
             .prop_map(|(ts, da, db)| (ts - Duration::from_secs(da), ts - Duration::from_secs(db)));
-        (accounts, timestamps)
-            .prop_map(|((a, b), (ta, tb))| (HLC::new(a.pubkey(), ta), HLC::new(b.pubkey(), tb)))
+        (accounts, timestamps).prop_map(|((a, b), (ta, tb))| {
+            (
+                Identifier::new(a.pubkey(), ta),
+                Identifier::new(b.pubkey(), tb),
+            )
+        })
     }
 
     #[proptest(fork = false)]
-    fn test_equality_against_a_different_timestamp(a: HLC, b: HLC) {
+    fn test_equality_against_a_different_timestamp(a: Identifier, b: Identifier) {
         prop_assume!(a.timestamp != b.timestamp);
         prop_assert_ne!(a, b);
     }
 
     #[proptest(fork = false)]
-    fn test_equality_against_a_different_counter(a: HLC) {
+    fn test_equality_against_a_different_counter(a: Identifier) {
         let mut b = a;
         b.counter += 1;
 
@@ -239,7 +243,7 @@ mod tests {
     }
 
     #[proptest(fork = false)]
-    fn test_equality_against_a_different_actor(a: HLC, key: Pubkey) {
+    fn test_equality_against_a_different_actor(a: Identifier, key: Pubkey) {
         let mut b = a;
         b.pubkey = key;
 
@@ -247,7 +251,7 @@ mod tests {
     }
 
     #[proptest(fork = false)]
-    fn test_equality(a: HLC, b: HLC) {
+    fn test_equality(a: Identifier, b: Identifier) {
         prop_assert_eq!(
             a == b,
             a.timestamp == b.timestamp && a.pubkey == b.pubkey && a.counter == b.counter
@@ -255,33 +259,33 @@ mod tests {
     }
 
     #[proptest(fork = false)]
-    fn test_bytes_always_have_same_size(a: HLC, b: HLC) {
+    fn test_bytes_always_have_same_size(a: Identifier, b: Identifier) {
         prop_assert_eq!(a.to_bytes().len(), b.to_bytes().len())
     }
 
     #[proptest(fork = false)]
-    fn test_bytes_respect_ordering(a: HLC, b: HLC) {
+    fn test_bytes_respect_ordering(a: Identifier, b: Identifier) {
         prop_assert_eq!(a.to_bytes().cmp(&b.to_bytes()), a.cmp(&b))
     }
 
     #[proptest(fork = false)]
-    fn test_to_string_respect_ordering(a: HLC, b: HLC) {
+    fn test_to_string_respect_ordering(a: Identifier, b: Identifier) {
         prop_assert_eq!(a.to_string().cmp(&b.to_string()), a.cmp(&b))
     }
 
     #[proptest(fork = false)]
-    fn test_to_string_equality(a: HLC, b: HLC) {
+    fn test_to_string_equality(a: Identifier, b: Identifier) {
         prop_assert_eq!(a == b, a.to_string() == b.to_string());
     }
 
     #[proptest(fork = false)]
-    fn test_to_string_roundtrip(a: HLC) {
-        prop_assert_eq!(a.to_string().parse::<HLC>()?, a);
+    fn test_to_string_roundtrip(a: Identifier) {
+        prop_assert_eq!(a.to_string().parse::<Identifier>()?, a);
     }
 
     #[proptest(fork = false)]
     fn test_incrementing_a_clock_makes_it_newer_than_before(op: Timestamp) {
-        let mut a = HLC::default();
+        let mut a = Identifier::default();
         let b = a;
 
         a.inc(&op);
@@ -293,7 +297,7 @@ mod tests {
     fn test_ordering_is_preserved_even_under_clock_drift(
         #[strategy((0..u16::MAX).prop_map(u64::from))] delay_a: u64,
         #[strategy((0..u16::MAX).prop_map(u64::from))] delay_b: u64,
-        #[strategy(pair(0u64..300, 0u64..300))] clocks: (HLC, HLC),
+        #[strategy(pair(0u64..300, 0u64..300))] clocks: (Identifier, Identifier),
     ) {
         let (mut a, b) = clocks;
 
@@ -305,14 +309,14 @@ mod tests {
 
     #[proptest(fork = false)]
     fn test_initialization_with_sets_count_to_zero(pubkey: Pubkey, timestamp: Timestamp) {
-        let a = HLC::new(pubkey, timestamp);
+        let a = Identifier::new(pubkey, timestamp);
         prop_assert_eq!(a.counter, 0);
     }
 
     #[proptest(fork = false)]
     fn test_inc_when_timestamp_is_newer_than_ours(
         #[strategy((1..u16::MAX).prop_map(u64::from))] delay: u64,
-        mut clock: HLC,
+        mut clock: Identifier,
     ) {
         let next = clock.timestamp + Duration::from_secs(delay);
 
@@ -325,7 +329,7 @@ mod tests {
     #[proptest(fork = false)]
     fn test_inc_when_timestamp_is_equal_or_before_ours(
         #[strategy((0..u16::MAX).prop_map(u64::from))] delay: u64,
-        mut clock: HLC,
+        mut clock: Identifier,
     ) {
         let old_timestamp = clock.timestamp;
         let old_counter = clock.counter;
@@ -339,8 +343,8 @@ mod tests {
     #[proptest(fork = false)]
     fn test_recv_when_local_timestamp_is_newer(
         #[strategy((1..u16::MAX).prop_map(u64::from))] delay: u64,
-        mut a: HLC,
-        b: HLC,
+        mut a: Identifier,
+        b: Identifier,
     ) {
         let now = a.timestamp.max(b.timestamp) + Duration::from_secs(delay);
         a.recv(&b, now);
@@ -350,7 +354,7 @@ mod tests {
     }
 
     #[proptest(fork = false)]
-    fn test_recv_when_local_timestamp_is_newer_than_just_one(mut a: HLC, mut b: HLC) {
+    fn test_recv_when_local_timestamp_is_newer_than_just_one(mut a: Identifier, mut b: Identifier) {
         b.timestamp = a.timestamp + Duration::from_secs(1);
         a.recv(&b, a.timestamp);
 
@@ -359,7 +363,7 @@ mod tests {
     }
 
     #[proptest(fork = false)]
-    fn test_recv_when_both_timestamps_are_equal(mut a: HLC, b: HLC) {
+    fn test_recv_when_both_timestamps_are_equal(mut a: Identifier, b: Identifier) {
         let counter = a.counter.max(b.counter);
 
         a.timestamp = b.timestamp;
@@ -372,8 +376,8 @@ mod tests {
     #[proptest(fork = false)]
     fn test_recv_when_our_timestamp_is_newer(
         #[strategy((1..u16::MAX).prop_map(u64::from))] delay: u64,
-        mut a: HLC,
-        b: HLC,
+        mut a: Identifier,
+        b: Identifier,
     ) {
         let counter = a.counter;
         let old_timestamp = b.timestamp;
@@ -386,7 +390,7 @@ mod tests {
     }
 
     #[proptest(fork = false)]
-    fn test_recv_when_their_timestamp_is_newer(mut a: HLC, b: HLC) {
+    fn test_recv_when_their_timestamp_is_newer(mut a: Identifier, b: Identifier) {
         a.timestamp = b.timestamp - Duration::from_secs(1);
         a.recv(&b, a.timestamp);
 
