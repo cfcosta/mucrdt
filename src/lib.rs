@@ -1,9 +1,9 @@
 mod error;
 
 pub mod clocks;
+pub mod collections;
 pub mod prelude;
 pub mod testing;
-pub mod types;
 pub mod values;
 
 #[doc(hidden)]

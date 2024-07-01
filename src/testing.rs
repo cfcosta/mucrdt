@@ -1,6 +1,4 @@
-
-
-use itertools::{Itertools};
+use itertools::Itertools;
 use proptest::{
     collection::hash_set,
     prelude::{prop::collection::vec, *},
