@@ -1,9 +1,6 @@
 mod error;
 
 pub mod collections;
-pub mod conflict_strategy;
-pub mod identifier;
-pub mod item;
 pub mod prelude;
 pub mod testing;
 pub mod values;
