@@ -1,3 +1,4 @@
+mod mpf;
 mod set;
 
-pub use set::Set;
+pub use {mpf::MerklePatriciaForestry, set::Set};

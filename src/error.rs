@@ -16,7 +16,20 @@ pub enum CRDTError {
     InvalidState,
 }
 
-#[derive(Debug, ThisError, PartialEq, Eq, Clone)]
+/// Custom error type for Merkle Patricia Forestry operations
+#[derive(ThisError, Debug, Clone, PartialEq, Eq)]
+pub enum MPFError {
+    #[error("Empty key or value")]
+    EmptyKeyOrValue,
+    #[error("Invalid proof or element already exists")]
+    InvalidProofOrElementExists,
+    #[error("Invalid proof or element doesn't exist")]
+    InvalidProofOrElementNotExists,
+    #[error("Branch and neighbor nibbles must be different")]
+    BranchNeighborNibbleConflict,
+}
+
+#[derive(Debug, ThisError, PartialEq, Clone)]
 pub enum Error {
     #[error("failed to deserialize: {0}")]
     FailedDeserialization(String),
@@ -26,6 +39,9 @@ pub enum Error {
 
     #[error("CRDT error: {0}")]
     CRDT(#[from] CRDTError),
+
+    #[error("MPF error: {0}")]
+    MPF(#[from] MPFError),
 
     #[error("unknown error: {0}")]
     Unknown(String),
