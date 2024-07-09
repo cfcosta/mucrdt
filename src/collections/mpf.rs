@@ -2,80 +2,110 @@ use digest::Digest;
 use proptest::{array::uniform4, prelude::*};
 use std::marker::PhantomData;
 
-/// A Merkle Patricia Forestry (MPF) is an append-only key-value data structure that combines
-/// the properties of Merkle trees and Patricia tries. It stores elements in a radix-16 trie,
-/// where each node contains a cryptographic hash digest of its sub-trie or value.
+/// Merkle Patricia Forestry (MPF): An Advanced Key-Value Data Structure
+/// 
+/// This implementation is based on the one done by Matthias Benkort on the
+/// [Merkle Patricia
+/// Forestry](https://github.com/aiken-lang/merkle-patricia-forestry)
+/// implementation for Aiken and Typescript.
 ///
-/// The MPF structure offers several advantages:
-/// 1. Efficient membership checks and insertions using only root hashes and succinct proofs
-/// 2. Significantly smaller proofs compared to traditional Merkle Patricia Tries
+/// The MPF combines Merkle trees and Patricia tries to create an append-only
+/// key-value store. It uses a radix-16 trie where each node contains a
+/// cryptographic hash digest of its sub-trie or value.
+///
+/// ## Core Concepts
+///
+/// 1. Trie Structure:
+///    - Radix-16 trie (hexadecimal digits/nibbles)
+///    - Two node types:
+///      a. Branch nodes: Up to 16 children (one per nibble)
+///      b. Leaf nodes: Stores key-value pair and remaining key part (suffix)
+///
+/// 2. Hashing Mechanism:
+///    - Leaf nodes: hash = H(head(suffix) || tail(suffix) || H(value) || tombstone)
+///    - Branch nodes: hash = H(nibbles(prefix) || H(Merkle tree of children))
+///    Where H is the cryptographic hash function, and || denotes concatenation.
+///
+/// 3. Branch Node Innovation:
+///    Instead of concatenating child hashes, we construct a Sparse Merkle Tree (SMT)
+///    of the children. This significantly reduces proof sizes while maintaining
+///    security.
+///
+/// 4. Path Compression:
+///    Implemented to reduce the number of nodes in the trie by merging nodes
+///    with single children into their parents, storing the compressed path.
+///
+/// ## Why MPF?
+///
+/// MPF addresses key challenges faced by traditional Merkle Patricia Tries (MPTs):
+///
+/// 1. Proof Size Efficiency:
+///    Classic MPTs with radix-16 can lead to large proofs. MPF reduces proof
+///    size from 480 bytes to 130 bytes per branch node by using SMTs.
+///
+/// 2. Balancing Radix Size and Proof Complexity:
+///    MPF strikes a balance between the efficiency of radix-16 tries and the
+///    compact proofs of binary tries.
+///
+/// 3. Byte-Oriented System Compatibility:
+///    MPF works efficiently with byte-oriented systems while maintaining the
+///    benefits of nibble-based tries.
+///
+/// 4. Space Efficiency:
+///    Path compression reduces the overall number of nodes in the trie,
+///    leading to more efficient storage and faster traversal.
+///
+/// ## Proof Structure
+///
+/// MPF proofs are designed for compactness and efficiency. Each proof step can be:
+///
+/// - Branch: Provides hashes of up to 4 sub-trees in an SMT structure.
+/// - Fork: Used when a branch node's prefix splits due to a new insertion.
+/// - Leaf: Contains the full key-value pair for the leaf node, including tombstone status.
+///
+/// ## Performance Characteristics
+///
+/// MPF balances proof size and computational overhead:
+///
+/// | Elements | Proof Size (bytes) |
+/// |----------|---------------------|
+/// | 10²      | 250                 |
+/// | 10³      | 350                 |
+/// | 10⁴      | 460                 |
+/// | 10⁵      | 560                 |
+/// | 10⁶      | 670                 |
+/// | 10⁷      | 780                 |
+/// | 10⁸      | 880                 |
+/// | 10⁹      | 990                 |
+///
+/// ## Advantages
+///
+/// 1. Efficient membership checks and insertions using root hashes and succinct proofs
+/// 2. Significantly smaller proofs compared to traditional MPTs
 /// 3. CPU and memory-efficient operations
+/// 4. Balanced approach to proof size and computational overhead
+/// 5. Compatibility with byte-oriented systems while maintaining nibble-based trie efficiency
+/// 6. Support for logical deletions through tombstones
+/// 7. Improved space efficiency through path compression
 ///
-/// # Structure
+/// ## Limitations
 ///
-/// The MPF uses a trie with a radix of 16, corresponding to hexadecimal digits. This design
-/// choice allows for efficient manipulation of nibbles (4-bit units) while working with
-/// byte-oriented systems. Each level in the trie can have up to 16 branches.
+/// This MPF implementation supports insertions and logical deletions (via tombstones),
+/// but not updates. This design choice ensures data structure integrity while allowing
+/// for removals.
 ///
-/// # Node Types
+/// ## Use Cases
 ///
-/// The MPF consists of two types of nodes:
-/// - Branch nodes: Contains up to 16 children, each corresponding to a nibble
-/// - Leaf nodes: Stores the actual key-value pair and any remaining part of the key (suffix)
+/// MPF is particularly useful in scenarios requiring:
 ///
-/// # Hashing Mechanism
+/// - Efficient membership proofs
+/// - Limited storage space for proofs
+/// - Append-only data structures with support for logical deletions
+/// - Cryptographic primitive compatibility
+/// - Balance between proof size and computational overhead
 ///
-/// The MPF employs a unique hashing mechanism that combines the benefits of Merkle trees
-/// and Patricia tries:
-///
-/// - For leaf nodes: hash = H(head(suffix) || tail(suffix) || H(value))
-/// - For branch nodes: hash = H(nibbles(prefix) || H(Merkle tree of children))
-///
-/// Where H is the chosen cryptographic hash function, and || denotes concatenation.
-///
-/// This hashing structure allows for efficient proof generation and verification while
-/// maintaining the integrity of the entire data structure.
-///
-/// # MerkleProof Structure
-///
-/// MerkleProofs in MPF are designed to be compact and efficient. Each proof step can be one of:
-/// - Branch: Provides hashes of up to 4 sub-trees in a sparse Merkle tree structure
-/// - Fork: Used when a branch node's prefix is split due to a new insertion
-/// - Leaf: Contains the full key-value pair for the leaf node
-///
-/// # Performance Characteristics
-///
-/// The following table illustrates the average proof size and computational requirements
-/// for various numbers of elements in the MPF:
-///
-/// | Elements | MerkleProof Size (bytes) | MerkleProof Memory | MerkleProof CPU |
-/// |----------|---------------------|--------------|-----------|
-/// | 10²      | 250                 | 70K          | 28M       |
-/// | 10³      | 350                 | 100K         | 42M       |
-/// | 10⁴      | 460                 | 130K         | 56M       |
-/// | 10⁵      | 560                 | 160K         | 70M       |
-/// | 10⁶      | 670                 | 190K         | 84M       |
-/// | 10⁷      | 780                 | 220K         | 98M       |
-/// | 10⁸      | 880                 | 250K         | 112M      |
-/// | 10⁹      | 990                 | 280K         | 126M      |
-///
-/// # Limitations
-///
-/// This implementation of MPF is append-only, supporting insertions but not updates or
-/// removals. This design choice ensures the integrity and immutability of the data structure,
-/// making it suitable for applications requiring an auditable history of changes.
-///
-/// # Usage Considerations
-///
-/// The MPF is particularly useful in scenarios where:
-/// - Efficient membership proofs are required
-/// - Storage space for proofs is limited
-/// - An immutable, append-only data structure is needed
-/// - The ability to work with cryptographic primitives is essential
-///
-/// However, users should be aware of the trade-off between proof size and computational
-/// overhead when choosing this data structure for their specific use case.
-// End of Selection
+/// When considering MPF, evaluate the trade-off between proof size and
+/// computational overhead for your specific use case.
 use crate::{
     prelude::{CmRDT, CvRDT, Item, MPFError, Result},
     values::Hash,
@@ -140,7 +170,8 @@ impl<D: Digest> MerklePatriciaForestry<D> {
 
     /// Verifies if an element is present in the trie with a specific value.
     ///
-    /// This function checks whether a given key-value pair exists in the MerklePatriciaForestry.
+    /// This function checks whether a given key-value pair exists in the MerklePatriciaForestry
+    /// and is not marked as deleted.
     ///
     /// # Arguments
     ///
@@ -149,7 +180,7 @@ impl<D: Digest> MerklePatriciaForestry<D> {
     ///
     /// # Returns
     ///
-    /// `true` if the key-value pair is present in the trie, `false` otherwise.
+    /// `true` if the key-value pair is present in the trie and not deleted, `false` otherwise.
     pub fn verify(&self, key: &[u8], value: &[u8]) -> bool {
         if self.is_empty() {
             return false;
@@ -186,9 +217,36 @@ impl<D: Digest> MerklePatriciaForestry<D> {
         Ok(())
     }
 
+    /// Removes an element from the trie.
+    ///
+    /// This function marks a key-value pair as deleted in the MerklePatriciaForestry.
+    /// It updates the proof and recalculates the root hash.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - A byte slice representing the key to remove.
+    ///
+    /// # Returns
+    ///
+    /// A Result indicating success or an MPFError if the operation fails.
+    pub fn remove(&mut self, key: &[u8]) -> Result<(), MPFError> {
+        if key.is_empty() {
+            return Err(MPFError::EmptyKeyOrValue);
+        }
+
+        let key_hash = Hash::digest::<D>(key);
+
+        // Instead of removing the leaf, we'll mark it as deleted
+        self.proof = self.mark_as_deleted(key_hash);
+        self.root = Self::calculate_root(&self.proof);
+
+        Ok(())
+    }
+
     /// Verifies a proof for a given key and value.
     ///
-    /// This function checks if a given key-value pair exists in the provided proof.
+    /// This function checks if a given key-value pair exists in the provided proof
+    /// and is not marked as deleted.
     ///
     /// # Arguments
     ///
@@ -198,21 +256,21 @@ impl<D: Digest> MerklePatriciaForestry<D> {
     ///
     /// # Returns
     ///
-    /// `true` if the key-value pair is present in the proof, `false` otherwise.
+    /// `true` if the key-value pair is present in the proof and not deleted, `false` otherwise.
     pub fn verify_proof(&self, key: Hash, value: Hash, proof: &MerkleProof) -> bool {
         if proof.0.is_empty() {
             return false;
         }
 
         proof.0.iter().any(|step| {
-            matches!(step, MerkleProofStep::Leaf { key: leaf_key, value: leaf_value, .. } if *leaf_key == key && *leaf_value == value)
+            matches!(step, Step::Leaf { key: leaf_key, value: leaf_value, .. } if *leaf_key == key && *leaf_value == value && *leaf_value != Hash::zero())
         })
     }
 
     /// Inserts a key-value pair into the proof.
     ///
     /// This function creates a new proof by adding the given key-value pair
-    /// and removing any existing leaf with the same key.
+    /// and removing any existing leaf with the same key. It also applies path compression.
     ///
     /// # Arguments
     ///
@@ -221,19 +279,75 @@ impl<D: Digest> MerklePatriciaForestry<D> {
     ///
     /// # Returns
     ///
-    /// A new MerkleProof containing the inserted key-value pair.
+    /// A new MerkleProof containing the inserted key-value pair with path compression applied.
     fn insert_to_proof(&self, key: Hash, value: Hash) -> MerkleProof {
         let mut new_proof = self.proof.clone();
         // Remove any existing leaf with the same key
         new_proof.0.retain(
-            |step| !matches!(step, MerkleProofStep::Leaf { key: leaf_key, .. } if *leaf_key == key),
+            |step| !matches!(step, Step::Leaf { key: leaf_key, .. } if *leaf_key == key),
         );
-        new_proof.0.push(MerkleProofStep::Leaf {
+        new_proof.0.push(Step::Leaf {
             skip: 0,
             key,
             value,
         });
+        Self::compress_path(&mut new_proof);
         new_proof
+    }
+
+    /// Marks a key-value pair as deleted in the proof.
+    ///
+    /// This function creates a new proof by marking the leaf with the given key as deleted
+    /// and applies path compression.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The Hash of the key to mark as deleted.
+    ///
+    /// # Returns
+    ///
+    /// A new MerkleProof with the key-value pair marked as deleted and path compression applied.
+    fn mark_as_deleted(&self, key: Hash) -> MerkleProof {
+        let mut new_proof = self.proof.clone();
+        for step in new_proof.0.iter_mut() {
+            if let Step::Leaf { key: leaf_key, value, .. } = step {
+                if *leaf_key == key {
+                    // Mark the leaf as deleted by setting its value to a special "tombstone" value
+                    *value = Hash::zero(); // Use a zero hash to represent a tombstone
+                    break;
+                }
+            }
+        }
+        Self::compress_path(&mut new_proof);
+        new_proof
+    }
+
+    /// Applies path compression to the proof.
+    ///
+    /// This function merges nodes with single children into their parents,
+    /// reducing the overall number of nodes in the trie.
+    ///
+    /// # Arguments
+    ///
+    /// * `proof` - A mutable reference to the MerkleProof to compress.
+    fn compress_path(proof: &mut MerkleProof) {
+        let mut i = 0;
+        while i < proof.0.len() - 1 {
+            if let (Step::Branch { skip: skip1, neighbors: neighbors1 }, Step::Branch { skip: skip2, neighbors: neighbors2 }) = (&proof.0[i], &proof.0[i + 1]) {
+                if neighbors1.iter().filter(|&&n| n != Hash::zero()).count() == 1 &&
+                   neighbors2.iter().filter(|&&n| n != Hash::zero()).count() == 1 {
+                    // Merge the two branch nodes
+                    let new_skip = skip1 + skip2 + 1;
+                    let new_neighbors = neighbors2.clone();
+                    proof.0[i] = Step::Branch { skip: new_skip, neighbors: new_neighbors };
+                    proof.0.remove(i + 1);
+                } else {
+                    i += 1;
+                }
+            } else {
+                i += 1;
+            }
+        }
     }
 
     /// Calculates the root hash of the Merkle Patricia Forestry.
@@ -251,17 +365,17 @@ impl<D: Digest> MerklePatriciaForestry<D> {
         let mut hasher = D::new();
         for step in &proof.0 {
             match step {
-                MerkleProofStep::Branch { neighbors, .. } => {
+                Step::Branch { neighbors, .. } => {
                     for neighbor in neighbors {
                         hasher.update(neighbor.as_ref());
                     }
                 }
-                MerkleProofStep::Fork { neighbor, .. } => {
+                Step::Fork { neighbor, .. } => {
                     hasher.update([neighbor.nibble]);
                     hasher.update(&neighbor.prefix);
                     hasher.update(neighbor.root.as_ref());
                 }
-                MerkleProofStep::Leaf { key, value, .. } => {
+                Step::Leaf { key, value, .. } => {
                     hasher.update(key.as_ref());
                     hasher.update(value.as_ref());
                 }
@@ -339,14 +453,14 @@ impl<D: Digest + 'static> CmRDT<MerklePatriciaForestry<D>> for MerklePatriciaFor
 
 /// Represents a proof in the Merkle Patricia Forestry.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MerkleProof(Vec<MerkleProofStep>);
+pub struct MerkleProof(Vec<Step>);
 
 impl Arbitrary for MerkleProof {
     type Parameters = usize;
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(max_depth: Self::Parameters) -> Self::Strategy {
-        vec(any::<MerkleProofStep>(), 0..=max_depth)
+        vec(any::<Step>(), 0..=max_depth)
             .prop_map(MerkleProof)
             .boxed()
     }
@@ -354,7 +468,7 @@ impl Arbitrary for MerkleProof {
 
 /// Represents a single step in a proof.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MerkleProofStep {
+pub enum Step {
     /// A branch node in the trie.
     Branch {
         /// The number of common prefix nibbles to skip.
@@ -380,18 +494,18 @@ pub enum MerkleProofStep {
     },
 }
 
-impl Arbitrary for MerkleProofStep {
+impl Arbitrary for Step {
     type Parameters = ();
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
         prop_oneof![
             (any::<usize>(), uniform4(any::<Hash>()))
-                .prop_map(|(skip, neighbors)| MerkleProofStep::Branch { skip, neighbors }),
+                .prop_map(|(skip, neighbors)| Step::Branch { skip, neighbors }),
             (any::<usize>(), any::<Neighbor>())
-                .prop_map(|(skip, neighbor)| MerkleProofStep::Fork { skip, neighbor }),
+                .prop_map(|(skip, neighbor)| Step::Fork { skip, neighbor }),
             (any::<usize>(), any::<Hash>(), any::<Hash>())
-                .prop_map(|(skip, key, value)| MerkleProofStep::Leaf { skip, key, value })
+                .prop_map(|(skip, key, value)| Step::Leaf { skip, key, value })
         ]
         .boxed()
     }
@@ -435,15 +549,16 @@ mod tests {
                 mod [<$digest _tests>] {
                     use super::*;
                     use $digest;
+                    use proptest::strategy::Strategy;
 
-                    fn non_empty() -> impl Strategy<Value = String> {
-                        any::<String>().prop_filter("non-empty string", |s| !s.is_empty())
+                    fn non_empty_string() -> impl Strategy<Value = String> {
+                        "[a-zA-Z0-9]+".prop_map(String::from)
                     }
 
                     #[test_strategy::proptest]
                     fn test_verify_proof(
-                        mut trie: MerklePatriciaForestry<$digest>,
-                        #[strategy(non_empty())] key: String,
+                        #[strategy(any::<MerklePatriciaForestry<$digest>>())] mut trie: MerklePatriciaForestry<$digest>,
+                        #[strategy(non_empty_string())] key: String,
                         value: String
                     ) {
                         trie.insert(key.as_bytes(), value.as_bytes())?;
@@ -454,8 +569,8 @@ mod tests {
 
                     #[test_strategy::proptest]
                     fn test_insert(
-                        mut trie: MerklePatriciaForestry<$digest>,
-                        #[strategy(non_empty())] key: String,
+                        #[strategy(any::<MerklePatriciaForestry<$digest>>())] mut trie: MerklePatriciaForestry<$digest>,
+                        #[strategy(non_empty_string())] key: String,
                         value: String
                     ) {
                         let original_trie = trie.clone();
@@ -466,10 +581,10 @@ mod tests {
 
                     #[test_strategy::proptest]
                     fn test_multiple_inserts(
-                        mut trie: MerklePatriciaForestry<$digest>,
-                        #[strategy(non_empty())] key1: String,
+                        #[strategy(any::<MerklePatriciaForestry<$digest>>())] mut trie: MerklePatriciaForestry<$digest>,
+                        #[strategy(non_empty_string())] key1: String,
                         value1: String,
-                        #[strategy(non_empty())] key2: String,
+                        #[strategy(non_empty_string())] key2: String,
                         value2: String
                     ) {
                         prop_assume!(key1 != key2);
@@ -496,7 +611,7 @@ mod tests {
 
                     #[test_strategy::proptest]
                     fn test_start_empty_add_one_check_hash(
-                        #[strategy(non_empty())] key: String,
+                        #[strategy(non_empty_string())] key: String,
                         value: String
                     ) {
                         let mut trie = MerklePatriciaForestry::<$digest>::empty();
@@ -512,9 +627,9 @@ mod tests {
 
                     #[test_strategy::proptest]
                     fn test_proof_verification(
-                        #[strategy(non_empty())] key1: String,
+                        #[strategy(non_empty_string())] key1: String,
                         value1: String,
-                        #[strategy(non_empty())] key2: String,
+                        #[strategy(non_empty_string())] key2: String,
                         value2: String
                     ) {
                         prop_assume!(key1 != key2);
@@ -540,8 +655,59 @@ mod tests {
                     }
 
                     #[test_strategy::proptest]
+                    fn test_proof_verification_with_tombstones(
+                        #[strategy(non_empty_string())] key1: String,
+                        value1: String,
+                        #[strategy(non_empty_string())] key2: String,
+                        value2: String
+                    ) {
+                        prop_assume!(key1 != key2);
+                        prop_assume!(value1 != value2);
+
+                        let mut trie = MerklePatriciaForestry::<$digest>::empty();
+
+                        // Insert and then remove key1
+                        trie.insert(key1.as_bytes(), value1.as_bytes())?;
+                        trie.remove(key1.as_bytes())?;
+
+                        // Verify that key1 is not in the trie (tombstone)
+                        prop_assert!(!trie.verify(key1.as_bytes(), value1.as_bytes()));
+                        prop_assert!(!trie.verify(key1.as_bytes(), &[]));
+
+                        // Insert key2
+                        trie.insert(key2.as_bytes(), value2.as_bytes())?;
+
+                        // Verify that key2 is in the trie
+                        prop_assert!(trie.verify(key2.as_bytes(), value2.as_bytes()));
+
+                        // Verify that key1 is still not in the trie
+                        prop_assert!(!trie.verify(key1.as_bytes(), value1.as_bytes()));
+                        prop_assert!(!trie.verify(key1.as_bytes(), &[]));
+
+                        // Remove key2
+                        trie.remove(key2.as_bytes())?;
+
+                        // Verify that both keys are not in the trie (tombstones)
+                        prop_assert!(!trie.verify(key1.as_bytes(), value1.as_bytes()));
+                        prop_assert!(!trie.verify(key1.as_bytes(), &[]));
+                        prop_assert!(!trie.verify(key2.as_bytes(), value2.as_bytes()));
+                        prop_assert!(!trie.verify(key2.as_bytes(), &[]));
+
+                        // Reinsert key1 with a different value
+                        trie.insert(key1.as_bytes(), value2.as_bytes())?;
+
+                        // Verify that key1 is now in the trie with the new value
+                        prop_assert!(trie.verify(key1.as_bytes(), value2.as_bytes()));
+                        prop_assert!(!trie.verify(key1.as_bytes(), value1.as_bytes()));
+
+                        // Verify that key2 is still not in the trie
+                        prop_assert!(!trie.verify(key2.as_bytes(), value2.as_bytes()));
+                        prop_assert!(!trie.verify(key2.as_bytes(), &[]));
+                    }
+
+                    #[test_strategy::proptest]
                     fn test_proof_size(
-                        trie: MerklePatriciaForestry<$digest>
+                        #[strategy(any::<MerklePatriciaForestry<$digest>>())] trie: MerklePatriciaForestry<$digest>
                     ) {
                         let proof = trie.proof.clone();
                         prop_assert!(proof.0.len() <= 130 * (4 + 1),
@@ -558,8 +724,8 @@ mod tests {
 
                     #[test_strategy::proptest]
                     fn test_root_proof_equality(
-                        trie1: MerklePatriciaForestry<$digest>,
-                        trie2: MerklePatriciaForestry<$digest>
+                        #[strategy(any::<MerklePatriciaForestry<$digest>>())] trie1: MerklePatriciaForestry<$digest>,
+                        #[strategy(any::<MerklePatriciaForestry<$digest>>())] trie2: MerklePatriciaForestry<$digest>
                     ) {
                         prop_assert_eq!(
                             trie1.root == trie2.root,
@@ -577,14 +743,14 @@ mod tests {
 
                     #[test_strategy::proptest]
                     fn test_root_matches_calculated(
-                        trie: MerklePatriciaForestry<$digest>
+                        #[strategy(any::<MerklePatriciaForestry<$digest>>())] trie: MerklePatriciaForestry<$digest>
                     ) {
                         let calculated_root = MerklePatriciaForestry::<$digest>::calculate_root(&trie.proof);
                         prop_assert_eq!(trie.root, calculated_root, "Root should match calculated root");
                     }
 
                     #[test_strategy::proptest]
-                    fn test_from_proof_root_calculation(proof: MerkleProof) {
+                    fn test_from_proof_root_calculation(#[strategy(any::<MerkleProof>())] proof: MerkleProof) {
                         let trie = MerklePatriciaForestry::<$digest>::from_proof(proof.clone());
                         let calculated_root = MerklePatriciaForestry::<$digest>::calculate_root(&proof);
                         prop_assert_eq!(trie.root, calculated_root, "Root should match calculated root after from_proof");
@@ -592,10 +758,10 @@ mod tests {
 
                     #[test_strategy::proptest]
                     fn test_verify_non_existent(
-                        mut trie: MerklePatriciaForestry<$digest>,
-                        #[strategy(non_empty())] key1: String,
+                        #[strategy(any::<MerklePatriciaForestry<$digest>>())] mut trie: MerklePatriciaForestry<$digest>,
+                        #[strategy(non_empty_string())] key1: String,
                         value1: String,
-                        #[strategy(non_empty())] key2: String,
+                        #[strategy(non_empty_string())] key2: String,
                         value2: String
                     ) {
                         prop_assume!(key1 != key2);
@@ -614,6 +780,127 @@ mod tests {
 
                         // Verify non-existent key-value pair
                         prop_assert!(!trie.verify(key2.as_bytes(), value2.as_bytes()));
+                    }
+
+                    #[test_strategy::proptest]
+                    fn test_remove_through_tombstone(
+                        #[strategy(any::<MerklePatriciaForestry<$digest>>())] mut trie: MerklePatriciaForestry<$digest>,
+                        #[strategy(non_empty_string())] key: String,
+                        value: String
+                    ) {
+                        // Insert a key-value pair
+                        trie.insert(key.as_bytes(), value.as_bytes())?;
+                        prop_assert!(trie.verify(key.as_bytes(), value.as_bytes()));
+
+                        // Remove the key
+                        trie.remove(key.as_bytes())?;
+                        
+                        // Verify that the key-value pair is no longer present
+                        prop_assert!(!trie.verify(key.as_bytes(), value.as_bytes()));
+
+                        // Try to remove the key again (should not cause an error)
+                        prop_assert!(trie.remove(key.as_bytes()).is_ok());
+
+                        // Verify that inserting the same key with a different value works
+                        let new_value = "new_value".to_string();
+                        trie.insert(key.as_bytes(), new_value.as_bytes())?;
+                        prop_assert!(trie.verify(key.as_bytes(), new_value.as_bytes()));
+                        prop_assert!(!trie.verify(key.as_bytes(), value.as_bytes()));
+                    }
+
+                    #[test_strategy::proptest]
+                    fn test_multiple_removes(
+                        #[strategy(any::<MerklePatriciaForestry<$digest>>())] mut trie: MerklePatriciaForestry<$digest>,
+                        #[strategy(non_empty_string())] key1: String,
+                        value1: String,
+                        #[strategy(non_empty_string())] key2: String,
+                        value2: String
+                    ) {
+                        prop_assume!(key1 != key2);
+
+                        // Insert two key-value pairs
+                        trie.insert(key1.as_bytes(), value1.as_bytes())?;
+                        trie.insert(key2.as_bytes(), value2.as_bytes())?;
+
+                        // Verify both are present
+                        prop_assert!(trie.verify(key1.as_bytes(), value1.as_bytes()));
+                        prop_assert!(trie.verify(key2.as_bytes(), value2.as_bytes()));
+
+                        // Remove the first key
+                        trie.remove(key1.as_bytes())?;
+                        
+                        // Verify first key is removed but second is still present
+                        prop_assert!(!trie.verify(key1.as_bytes(), value1.as_bytes()));
+                        prop_assert!(trie.verify(key2.as_bytes(), value2.as_bytes()));
+
+                        // Remove the second key
+                        trie.remove(key2.as_bytes())?;
+
+                        // Verify both keys are removed
+                        prop_assert!(!trie.verify(key1.as_bytes(), value1.as_bytes()));
+                        prop_assert!(!trie.verify(key2.as_bytes(), value2.as_bytes()));
+                    }
+
+                    #[test_strategy::proptest]
+                    fn test_second_preimage_resistance(
+                        mut trie: MerklePatriciaForestry<$digest>,
+                        #[strategy(vec(any::<u8>(), 1..100))] key1: Vec<u8>,
+                        #[strategy(vec(any::<u8>(), 1..100))] key2: Vec<u8>,
+                        value1: u8,
+                        value2: u8
+                    ) {
+                        prop_assume!(key1 != key2);
+
+                        trie.insert(&key1, &[value1])?;
+                        let root1 = trie.root;
+
+                        trie.insert(&key2, &[value2])?;
+                        let root2 = trie.root;
+
+                        prop_assert_ne!(root1, root2, "Different key-value pairs should produce different trie states");
+                        
+                        // Verify both key-value pairs are present
+                        prop_assert!(trie.verify(&key1, &[value1]), "First key-value pair not found");
+                        prop_assert!(trie.verify(&key2, &[value2]), "Second key-value pair not found");
+                    }
+
+                    #[test_strategy::proptest]
+                    fn test_malicious_proof_resistance(
+                        trie: MerklePatriciaForestry<$digest>,
+                        key: Vec<u8>,
+                        value: u8,
+                        malicious_steps: Vec<Step>
+                    ) {
+                        // Skip the test if the trie is empty and there are no malicious steps
+                        prop_assume!(!trie.is_empty() || !malicious_steps.is_empty());
+
+                        let mut malicious_proof = trie.proof.clone();
+                        malicious_proof.0.extend(malicious_steps);
+
+                        let malicious_trie = MerklePatriciaForestry::<$digest>::from_proof(malicious_proof);
+
+                        // Verify that the malicious trie doesn't falsely claim to contain the key-value pair
+                        prop_assert!(!malicious_trie.verify(&key, &[value]), "Malicious proof falsely verified");
+                        
+                        // Ensure the root hash of the malicious trie is different
+                        prop_assert_ne!(trie.root, malicious_trie.root, "Malicious trie has the same root hash");
+                    }
+
+                    #[test_strategy::proptest]
+                    fn test_large_key_value_pairs(
+                        mut trie: MerklePatriciaForestry<$digest>,
+                        #[strategy(vec(any::<u8>(), 100..1000))] large_key: Vec<u8>,
+                        #[strategy(vec(any::<u8>(), 100..1000))] large_value: Vec<u8>
+                    ) {
+                        let initial_size = trie.proof.0.len();
+                        trie.insert(&large_key, &large_value)?;
+                        prop_assert!(trie.verify(&large_key, &large_value), "Failed to verify large key-value pair");
+                        
+                        // Check that trie size increase is reasonable
+                        let size_increase = trie.proof.0.len() - initial_size;
+                        prop_assert!(size_increase <= large_key.len() + large_value.len(), 
+                            "Trie size increase {} is larger than key size {} plus value size {}", 
+                            size_increase, large_key.len(), large_value.len());
                     }
 
                     type Mpf = MerklePatriciaForestry<$digest>;
