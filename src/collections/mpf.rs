@@ -3,7 +3,7 @@ use proptest::{array::uniform4, prelude::*};
 use std::marker::PhantomData;
 
 /// Merkle Patricia Forestry (MPF): An Advanced Key-Value Data Structure
-/// 
+///
 /// This implementation is based on the one done by Matthias Benkort on the
 /// [Merkle Patricia
 /// Forestry](https://github.com/aiken-lang/merkle-patricia-forestry)
@@ -283,9 +283,9 @@ impl<D: Digest> MerklePatriciaForestry<D> {
     fn insert_to_proof(&self, key: Hash, value: Hash) -> MerkleProof {
         let mut new_proof = self.proof.clone();
         // Remove any existing leaf with the same key
-        new_proof.0.retain(
-            |step| !matches!(step, Step::Leaf { key: leaf_key, .. } if *leaf_key == key),
-        );
+        new_proof
+            .0
+            .retain(|step| !matches!(step, Step::Leaf { key: leaf_key, .. } if *leaf_key == key));
         new_proof.0.push(Step::Leaf {
             skip: 0,
             key,
@@ -310,7 +310,12 @@ impl<D: Digest> MerklePatriciaForestry<D> {
     fn mark_as_deleted(&self, key: Hash) -> MerkleProof {
         let mut new_proof = self.proof.clone();
         for step in new_proof.0.iter_mut() {
-            if let Step::Leaf { key: leaf_key, value, .. } = step {
+            if let Step::Leaf {
+                key: leaf_key,
+                value,
+                ..
+            } = step
+            {
                 if *leaf_key == key {
                     // Mark the leaf as deleted by setting its value to a special "tombstone" value
                     *value = Hash::zero(); // Use a zero hash to represent a tombstone
@@ -333,13 +338,27 @@ impl<D: Digest> MerklePatriciaForestry<D> {
     fn compress_path(proof: &mut MerkleProof) {
         let mut i = 0;
         while i < proof.0.len() - 1 {
-            if let (Step::Branch { skip: skip1, neighbors: neighbors1 }, Step::Branch { skip: skip2, neighbors: neighbors2 }) = (&proof.0[i], &proof.0[i + 1]) {
-                if neighbors1.iter().filter(|&&n| n != Hash::zero()).count() == 1 &&
-                   neighbors2.iter().filter(|&&n| n != Hash::zero()).count() == 1 {
+            if let (
+                Step::Branch {
+                    skip: skip1,
+                    neighbors: neighbors1,
+                },
+                Step::Branch {
+                    skip: skip2,
+                    neighbors: neighbors2,
+                },
+            ) = (&proof.0[i], &proof.0[i + 1])
+            {
+                if neighbors1.iter().filter(|&&n| n != Hash::zero()).count() == 1
+                    && neighbors2.iter().filter(|&&n| n != Hash::zero()).count() == 1
+                {
                     // Merge the two branch nodes
                     let new_skip = skip1 + skip2 + 1;
                     let new_neighbors = neighbors2.clone();
-                    proof.0[i] = Step::Branch { skip: new_skip, neighbors: new_neighbors };
+                    proof.0[i] = Step::Branch {
+                        skip: new_skip,
+                        neighbors: new_neighbors,
+                    };
                     proof.0.remove(i + 1);
                 } else {
                     i += 1;
@@ -445,15 +464,37 @@ impl<D: Digest + 'static> CvRDT for MerklePatriciaForestry<D> {
     }
 }
 
-impl<D: Digest + 'static> CmRDT<MerklePatriciaForestry<D>> for MerklePatriciaForestry<D> {
-    fn apply(&mut self, op: &Item<MerklePatriciaForestry<D>>) -> Result<()> {
-        self.merge(&op.value)
+impl<D: Digest + 'static> CmRDT<MerkleProof> for MerklePatriciaForestry<D> {
+    fn apply(&mut self, op: &Item<MerkleProof>) -> Result<()> {
+        let mpf = Self::from_proof(op.value.clone());
+        self.merge(&mpf)
     }
 }
 
 /// Represents a proof in the Merkle Patricia Forestry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MerkleProof(Vec<Step>);
+
+impl PartialOrd for MerkleProof {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        // Compare the lengths of the proof vectors first
+        match self.0.len().partial_cmp(&other.0.len()) {
+            Some(core::cmp::Ordering::Equal) => {}
+            ord => return ord,
+        }
+
+        // If lengths are equal, compare each step
+        for (self_step, other_step) in self.0.iter().zip(other.0.iter()) {
+            match self_step.partial_cmp(other_step) {
+                Some(core::cmp::Ordering::Equal) => continue,
+                ord => return ord,
+            }
+        }
+
+        // If all steps are equal, the proofs are equal
+        Some(core::cmp::Ordering::Equal)
+    }
+}
 
 impl Arbitrary for MerkleProof {
     type Parameters = usize;
@@ -511,8 +552,64 @@ impl Arbitrary for Step {
     }
 }
 
+impl PartialOrd for Step {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        match (self, other) {
+            (
+                Step::Branch {
+                    skip: s1,
+                    neighbors: n1,
+                },
+                Step::Branch {
+                    skip: s2,
+                    neighbors: n2,
+                },
+            ) => match s1.partial_cmp(s2) {
+                Some(core::cmp::Ordering::Equal) => n1.partial_cmp(n2),
+                ord => ord,
+            },
+            (
+                Step::Fork {
+                    skip: s1,
+                    neighbor: n1,
+                },
+                Step::Fork {
+                    skip: s2,
+                    neighbor: n2,
+                },
+            ) => match s1.partial_cmp(s2) {
+                Some(core::cmp::Ordering::Equal) => n1.partial_cmp(n2),
+                ord => ord,
+            },
+            (
+                Step::Leaf {
+                    skip: s1,
+                    key: k1,
+                    value: v1,
+                },
+                Step::Leaf {
+                    skip: s2,
+                    key: k2,
+                    value: v2,
+                },
+            ) => match s1.partial_cmp(s2) {
+                Some(core::cmp::Ordering::Equal) => match k1.partial_cmp(k2) {
+                    Some(core::cmp::Ordering::Equal) => v1.partial_cmp(v2),
+                    ord => ord,
+                },
+                ord => ord,
+            },
+            // Define an arbitrary order between different Step variants
+            (Step::Branch { .. }, _) => Some(core::cmp::Ordering::Less),
+            (_, Step::Branch { .. }) => Some(core::cmp::Ordering::Greater),
+            (Step::Fork { .. }, Step::Leaf { .. }) => Some(core::cmp::Ordering::Less),
+            (Step::Leaf { .. }, Step::Fork { .. }) => Some(core::cmp::Ordering::Greater),
+        }
+    }
+}
+
 /// Represents a neighboring node in a fork step of a proof.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
 pub struct Neighbor {
     /// The nibble (4-bit value) of the neighbor.
     nibble: u8,
@@ -542,7 +639,7 @@ mod tests {
     use super::*;
     use paste::paste;
 
-    macro_rules! generate_tests {
+    macro_rules! generate_mpf_tests {
         ($digest:ty) => {
             paste! {
                 #[allow(non_snake_case)]
@@ -552,7 +649,7 @@ mod tests {
                     use proptest::strategy::Strategy;
 
                     fn non_empty_string() -> impl Strategy<Value = String> {
-                        "[a-zA-Z0-9]+".prop_map(String::from)
+                        any::<String>().prop_filter("must not be empty", |s| !s.is_empty())
                     }
 
                     #[test_strategy::proptest]
@@ -794,7 +891,7 @@ mod tests {
 
                         // Remove the key
                         trie.remove(key.as_bytes())?;
-                        
+
                         // Verify that the key-value pair is no longer present
                         prop_assert!(!trie.verify(key.as_bytes(), value.as_bytes()));
 
@@ -828,7 +925,7 @@ mod tests {
 
                         // Remove the first key
                         trie.remove(key1.as_bytes())?;
-                        
+
                         // Verify first key is removed but second is still present
                         prop_assert!(!trie.verify(key1.as_bytes(), value1.as_bytes()));
                         prop_assert!(trie.verify(key2.as_bytes(), value2.as_bytes()));
@@ -858,7 +955,7 @@ mod tests {
                         let root2 = trie.root;
 
                         prop_assert_ne!(root1, root2, "Different key-value pairs should produce different trie states");
-                        
+
                         // Verify both key-value pairs are present
                         prop_assert!(trie.verify(&key1, &[value1]), "First key-value pair not found");
                         prop_assert!(trie.verify(&key2, &[value2]), "Second key-value pair not found");
@@ -881,7 +978,7 @@ mod tests {
 
                         // Verify that the malicious trie doesn't falsely claim to contain the key-value pair
                         prop_assert!(!malicious_trie.verify(&key, &[value]), "Malicious proof falsely verified");
-                        
+
                         // Ensure the root hash of the malicious trie is different
                         prop_assert_ne!(trie.root, malicious_trie.root, "Malicious trie has the same root hash");
                     }
@@ -895,17 +992,17 @@ mod tests {
                         let initial_size = trie.proof.0.len();
                         trie.insert(&large_key, &large_value)?;
                         prop_assert!(trie.verify(&large_key, &large_value), "Failed to verify large key-value pair");
-                        
+
                         // Check that trie size increase is reasonable
                         let size_increase = trie.proof.0.len() - initial_size;
-                        prop_assert!(size_increase <= large_key.len() + large_value.len(), 
-                            "Trie size increase {} is larger than key size {} plus value size {}", 
+                        prop_assert!(size_increase <= large_key.len() + large_value.len(),
+                            "Trie size increase {} is larger than key size {} plus value size {}",
                             size_increase, large_key.len(), large_value.len());
                     }
 
                     type Mpf = MerklePatriciaForestry<$digest>;
                     crate::test_state_crdt_properties!(Mpf);
-                    crate::test_op_crdt_properties!(Mpf);
+                    crate::test_op_crdt_properties!(Mpf, MerkleProof);
                 }
             }
         };
@@ -915,7 +1012,48 @@ mod tests {
     type Blake2s = blake2::Blake2s256;
     type Sha256 = sha2::Sha256;
 
-    generate_tests!(Blake3);
-    generate_tests!(Blake2s);
-    generate_tests!(Sha256);
+    generate_mpf_tests!(Blake3);
+    generate_mpf_tests!(Blake2s);
+    generate_mpf_tests!(Sha256);
+
+    #[test_strategy::proptest]
+    fn test_merkle_proof_reflexive(proof: MerkleProof) {
+        prop_assert_eq!(proof.partial_cmp(&proof), Some(std::cmp::Ordering::Equal));
+    }
+
+    #[test_strategy::proptest]
+    fn test_merkle_proof_antisymmetric(proof1: MerkleProof, proof2: MerkleProof) {
+        if proof1 == proof2 {
+            prop_assert_eq!(proof1.partial_cmp(&proof2), Some(std::cmp::Ordering::Equal));
+            prop_assert_eq!(proof2.partial_cmp(&proof1), Some(std::cmp::Ordering::Equal));
+        } else if let (Some(ord1), Some(ord2)) =
+            (proof1.partial_cmp(&proof2), proof2.partial_cmp(&proof1))
+        {
+            prop_assert_ne!(ord1, ord2);
+        }
+    }
+
+    #[test_strategy::proptest]
+    fn test_merkle_proof_transitive(proof1: MerkleProof, proof2: MerkleProof, proof3: MerkleProof) {
+        if let (Some(ord1), Some(ord2)) = (proof1.partial_cmp(&proof2), proof2.partial_cmp(&proof3))
+        {
+            if ord1 == ord2 {
+                prop_assert_eq!(proof1.partial_cmp(&proof3), Some(ord1));
+            }
+        }
+    }
+
+    #[test_strategy::proptest]
+    fn test_merkle_proof_consistency(proof1: MerkleProof, proof2: MerkleProof) {
+        let cmp1 = proof1.partial_cmp(&proof2);
+        let cmp2 = proof2.partial_cmp(&proof1);
+
+        match (cmp1, cmp2) {
+            (Some(std::cmp::Ordering::Less), Some(std::cmp::Ordering::Greater))
+            | (Some(std::cmp::Ordering::Greater), Some(std::cmp::Ordering::Less))
+            | (Some(std::cmp::Ordering::Equal), Some(std::cmp::Ordering::Equal)) => {}
+            (None, None) => {}
+            _ => prop_assert!(false, "Inconsistent comparison: {:?} vs {:?}", cmp1, cmp2),
+        }
+    }
 }
