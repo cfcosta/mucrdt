@@ -36,9 +36,9 @@ use std::marker::PhantomData;
 /// This hashing structure allows for efficient proof generation and verification while
 /// maintaining the integrity of the entire data structure.
 ///
-/// # Proof Structure
+/// # MerkleProof Structure
 ///
-/// Proofs in MPF are designed to be compact and efficient. Each proof step can be one of:
+/// MerkleProofs in MPF are designed to be compact and efficient. Each proof step can be one of:
 /// - Branch: Provides hashes of up to 4 sub-trees in a sparse Merkle tree structure
 /// - Fork: Used when a branch node's prefix is split due to a new insertion
 /// - Leaf: Contains the full key-value pair for the leaf node
@@ -48,7 +48,7 @@ use std::marker::PhantomData;
 /// The following table illustrates the average proof size and computational requirements
 /// for various numbers of elements in the MPF:
 ///
-/// | Elements | Proof Size (bytes) | Proof Memory | Proof CPU |
+/// | Elements | MerkleProof Size (bytes) | MerkleProof Memory | MerkleProof CPU |
 /// |----------|---------------------|--------------|-----------|
 /// | 10²      | 250                 | 70K          | 28M       |
 /// | 10³      | 350                 | 100K         | 42M       |
@@ -75,9 +75,7 @@ use std::marker::PhantomData;
 ///
 /// However, users should be aware of the trade-off between proof size and computational
 /// overhead when choosing this data structure for their specific use case.
-
 // End of Selection
-
 use crate::{
     prelude::{CmRDT, CvRDT, Item, MPFError, Result},
     values::Hash,
@@ -86,9 +84,191 @@ use proptest::collection::vec;
 
 /// Represents a Merkle Patricia Forestry
 pub struct MerklePatriciaForestry<D: Digest> {
-    proof: Proof,
+    proof: MerkleProof,
     root: Hash,
     _phantom: PhantomData<D>,
+}
+
+impl<D: Digest> MerklePatriciaForestry<D> {
+    /// Constructs a new MerklePatriciaForestry from its proof.
+    ///
+    /// This function takes a MerkleProof and creates a new MerklePatriciaForestry instance.
+    /// It calculates the root hash from the provided proof and initializes the structure.
+    ///
+    /// # Arguments
+    ///
+    /// * `proof` - A MerkleProof representing the state of the Merkle Patricia Forestry.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of MerklePatriciaForestry.
+    pub fn from_proof(proof: MerkleProof) -> Self {
+        let root = Self::calculate_root(&proof);
+        Self {
+            proof,
+            root,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Constructs a new empty MerklePatriciaForestry.
+    ///
+    /// This function creates an empty MerklePatriciaForestry with no elements.
+    /// The proof is an empty vector and the root is set to the zero hash.
+    ///
+    /// # Returns
+    ///
+    /// A new empty instance of MerklePatriciaForestry.
+    pub fn empty() -> Self {
+        Self {
+            proof: MerkleProof(vec![]),
+            root: Hash::zero(),
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Checks if the MerklePatriciaForestry is empty.
+    ///
+    /// This function determines whether the MerklePatriciaForestry contains any elements.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the MerklePatriciaForestry is empty, `false` otherwise.
+    pub fn is_empty(&self) -> bool {
+        self.proof.0.is_empty()
+    }
+
+    /// Verifies if an element is present in the trie with a specific value.
+    ///
+    /// This function checks whether a given key-value pair exists in the MerklePatriciaForestry.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - A byte slice representing the key to verify.
+    /// * `value` - A byte slice representing the value to verify.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the key-value pair is present in the trie, `false` otherwise.
+    pub fn verify(&self, key: &[u8], value: &[u8]) -> bool {
+        if self.is_empty() {
+            return false;
+        }
+        let key_hash = Hash::digest::<D>(key);
+        let value_hash = Hash::digest::<D>(value);
+        self.verify_proof(key_hash, value_hash, &self.proof)
+    }
+
+    /// Inserts an element to the trie.
+    ///
+    /// This function adds a new key-value pair to the MerklePatriciaForestry.
+    /// It updates the proof and recalculates the root hash.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - A byte slice representing the key to insert.
+    /// * `value` - A byte slice representing the value to insert.
+    ///
+    /// # Returns
+    ///
+    /// A Result indicating success or an MPFError if the operation fails.
+    pub fn insert(&mut self, key: &[u8], value: &[u8]) -> Result<(), MPFError> {
+        if key.is_empty() {
+            return Err(MPFError::EmptyKeyOrValue);
+        }
+
+        let key_hash = Hash::digest::<D>(key);
+        let value_hash = Hash::digest::<D>(value);
+
+        self.proof = self.insert_to_proof(key_hash, value_hash);
+        self.root = Self::calculate_root(&self.proof);
+
+        Ok(())
+    }
+
+    /// Verifies a proof for a given key and value.
+    ///
+    /// This function checks if a given key-value pair exists in the provided proof.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The Hash of the key to verify.
+    /// * `value` - The Hash of the value to verify.
+    /// * `proof` - A reference to the MerkleProof to check against.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the key-value pair is present in the proof, `false` otherwise.
+    pub fn verify_proof(&self, key: Hash, value: Hash, proof: &MerkleProof) -> bool {
+        if proof.0.is_empty() {
+            return false;
+        }
+
+        proof.0.iter().any(|step| {
+            matches!(step, MerkleProofStep::Leaf { key: leaf_key, value: leaf_value, .. } if *leaf_key == key && *leaf_value == value)
+        })
+    }
+
+    /// Inserts a key-value pair into the proof.
+    ///
+    /// This function creates a new proof by adding the given key-value pair
+    /// and removing any existing leaf with the same key.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The Hash of the key to insert.
+    /// * `value` - The Hash of the value to insert.
+    ///
+    /// # Returns
+    ///
+    /// A new MerkleProof containing the inserted key-value pair.
+    fn insert_to_proof(&self, key: Hash, value: Hash) -> MerkleProof {
+        let mut new_proof = self.proof.clone();
+        // Remove any existing leaf with the same key
+        new_proof.0.retain(
+            |step| !matches!(step, MerkleProofStep::Leaf { key: leaf_key, .. } if *leaf_key == key),
+        );
+        new_proof.0.push(MerkleProofStep::Leaf {
+            skip: 0,
+            key,
+            value,
+        });
+        new_proof
+    }
+
+    /// Calculates the root hash of the Merkle Patricia Forestry.
+    ///
+    /// This function computes the root hash based on the provided proof.
+    ///
+    /// # Arguments
+    ///
+    /// * `proof` - A reference to the MerkleProof to calculate the root from.
+    ///
+    /// # Returns
+    ///
+    /// The calculated root Hash of the Merkle Patricia Forestry.
+    fn calculate_root(proof: &MerkleProof) -> Hash {
+        let mut hasher = D::new();
+        for step in &proof.0 {
+            match step {
+                MerkleProofStep::Branch { neighbors, .. } => {
+                    for neighbor in neighbors {
+                        hasher.update(neighbor.as_ref());
+                    }
+                }
+                MerkleProofStep::Fork { neighbor, .. } => {
+                    hasher.update([neighbor.nibble]);
+                    hasher.update(&neighbor.prefix);
+                    hasher.update(neighbor.root.as_ref());
+                }
+                MerkleProofStep::Leaf { key, value, .. } => {
+                    hasher.update(key.as_ref());
+                    hasher.update(value.as_ref());
+                }
+            }
+        }
+        Hash::from_slice(hasher.finalize().as_ref())
+    }
 }
 
 impl<D: Digest> Clone for MerklePatriciaForestry<D> {
@@ -129,108 +309,9 @@ impl<D: Digest + 'static> Arbitrary for MerklePatriciaForestry<D> {
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
-        any::<Proof>()
+        any::<MerkleProof>()
             .prop_map(|proof| Self::from_proof(proof))
             .boxed()
-    }
-}
-
-impl<D: Digest> MerklePatriciaForestry<D> {
-    /// Constructs a new MerklePatriciaForestry from its proof.
-    pub fn from_proof(proof: Proof) -> Self {
-        let root = Self::calculate_root(&proof);
-        Self {
-            proof,
-            root,
-            _phantom: PhantomData,
-        }
-    }
-
-    /// Constructs a new empty MerklePatriciaForestry.
-    pub fn empty() -> Self {
-        Self {
-            proof: Proof(vec![]),
-            root: Hash::zero(),
-            _phantom: PhantomData,
-        }
-    }
-
-    /// Checks if the MerklePatriciaForestry is empty.
-    pub fn is_empty(&self) -> bool {
-        self.proof.0.is_empty()
-    }
-
-    /// Verifies if an element is present in the trie with a specific value.
-    pub fn verify(&self, key: &[u8], value: &[u8]) -> bool {
-        if self.is_empty() {
-            return false;
-        }
-        let key_hash = Hash::digest::<D>(key);
-        let value_hash = Hash::digest::<D>(value);
-        self.verify_proof(key_hash, value_hash, &self.proof)
-    }
-
-    /// Inserts an element to the trie.
-    pub fn insert(&mut self, key: &[u8], value: &[u8]) -> Result<(), MPFError> {
-        if key.is_empty() {
-            return Err(MPFError::EmptyKeyOrValue);
-        }
-
-        let key_hash = Hash::digest::<D>(key);
-        let value_hash = Hash::digest::<D>(value);
-
-        self.proof = self.insert_to_proof(key_hash, value_hash);
-        self.root = Self::calculate_root(&self.proof);
-
-        Ok(())
-    }
-
-    /// Verifies a proof for a given key and value.
-    pub fn verify_proof(&self, key: Hash, value: Hash, proof: &Proof) -> bool {
-        if proof.0.is_empty() {
-            return false;
-        }
-
-        proof.0.iter().any(|step| {
-            matches!(step, ProofStep::Leaf { key: leaf_key, value: leaf_value, .. } if *leaf_key == key && *leaf_value == value)
-        })
-    }
-
-    fn insert_to_proof(&self, key: Hash, value: Hash) -> Proof {
-        let mut new_proof = self.proof.clone();
-        // Remove any existing leaf with the same key
-        new_proof.0.retain(|step| {
-            !matches!(step, ProofStep::Leaf { key: leaf_key, .. } if *leaf_key == key)
-        });
-        new_proof.0.push(ProofStep::Leaf {
-            skip: 0,
-            key,
-            value,
-        });
-        new_proof
-    }
-
-    fn calculate_root(proof: &Proof) -> Hash {
-        let mut hasher = D::new();
-        for step in &proof.0 {
-            match step {
-                ProofStep::Branch { neighbors, .. } => {
-                    for neighbor in neighbors {
-                        hasher.update(neighbor.as_ref());
-                    }
-                }
-                ProofStep::Fork { neighbor, .. } => {
-                    hasher.update([neighbor.nibble]);
-                    hasher.update(&neighbor.prefix);
-                    hasher.update(neighbor.root.as_ref());
-                }
-                ProofStep::Leaf { key, value, .. } => {
-                    hasher.update(key.as_ref());
-                    hasher.update(value.as_ref());
-                }
-            }
-        }
-        Hash::from_slice(hasher.finalize().as_ref())
     }
 }
 
@@ -258,22 +339,22 @@ impl<D: Digest + 'static> CmRDT<MerklePatriciaForestry<D>> for MerklePatriciaFor
 
 /// Represents a proof in the Merkle Patricia Forestry.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Proof(Vec<ProofStep>);
+pub struct MerkleProof(Vec<MerkleProofStep>);
 
-impl Arbitrary for Proof {
+impl Arbitrary for MerkleProof {
     type Parameters = usize;
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(max_depth: Self::Parameters) -> Self::Strategy {
-        vec(any::<ProofStep>(), 0..=max_depth)
-            .prop_map(Proof)
+        vec(any::<MerkleProofStep>(), 0..=max_depth)
+            .prop_map(MerkleProof)
             .boxed()
     }
 }
 
 /// Represents a single step in a proof.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ProofStep {
+pub enum MerkleProofStep {
     /// A branch node in the trie.
     Branch {
         /// The number of common prefix nibbles to skip.
@@ -299,18 +380,18 @@ pub enum ProofStep {
     },
 }
 
-impl Arbitrary for ProofStep {
+impl Arbitrary for MerkleProofStep {
     type Parameters = ();
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
         prop_oneof![
             (any::<usize>(), uniform4(any::<Hash>()))
-                .prop_map(|(skip, neighbors)| ProofStep::Branch { skip, neighbors }),
+                .prop_map(|(skip, neighbors)| MerkleProofStep::Branch { skip, neighbors }),
             (any::<usize>(), any::<Neighbor>())
-                .prop_map(|(skip, neighbor)| ProofStep::Fork { skip, neighbor }),
+                .prop_map(|(skip, neighbor)| MerkleProofStep::Fork { skip, neighbor }),
             (any::<usize>(), any::<Hash>(), any::<Hash>())
-                .prop_map(|(skip, key, value)| ProofStep::Leaf { skip, key, value })
+                .prop_map(|(skip, key, value)| MerkleProofStep::Leaf { skip, key, value })
         ]
         .boxed()
     }
@@ -367,7 +448,7 @@ mod tests {
                     ) {
                         trie.insert(key.as_bytes(), value.as_bytes())?;
                         prop_assert!(trie.verify(key.as_bytes(), value.as_bytes()),
-                            "Proof verification failed for key: {:?}, value: {:?}",
+                            "MerkleProof verification failed for key: {:?}, value: {:?}",
                             key, value);
                     }
 
@@ -464,7 +545,7 @@ mod tests {
                     ) {
                         let proof = trie.proof.clone();
                         prop_assert!(proof.0.len() <= 130 * (4 + 1),
-                            "Proof size {} exceeds expected maximum",
+                            "MerkleProof size {} exceeds expected maximum",
                             proof.0.len());
                     }
 
@@ -503,9 +584,7 @@ mod tests {
                     }
 
                     #[test_strategy::proptest]
-                    fn test_from_proof_root_calculation(
-                        #[strategy(any::<Proof>())] proof: Proof
-                    ) {
+                    fn test_from_proof_root_calculation(proof: MerkleProof) {
                         let trie = MerklePatriciaForestry::<$digest>::from_proof(proof.clone());
                         let calculated_root = MerklePatriciaForestry::<$digest>::calculate_root(&proof);
                         prop_assert_eq!(trie.root, calculated_root, "Root should match calculated root after from_proof");
@@ -523,16 +602,16 @@ mod tests {
                         prop_assume!(value1 != value2);
 
                         trie.insert(key1.as_bytes(), value1.as_bytes())?;
-                        
+
                         // Verify correct key-value pair
                         prop_assert!(trie.verify(key1.as_bytes(), value1.as_bytes()));
-                        
+
                         // Verify non-existent key
                         prop_assert!(!trie.verify(key2.as_bytes(), value1.as_bytes()));
-                        
+
                         // Verify existing key with wrong value
                         prop_assert!(!trie.verify(key1.as_bytes(), value2.as_bytes()));
-                        
+
                         // Verify non-existent key-value pair
                         prop_assert!(!trie.verify(key2.as_bytes(), value2.as_bytes()));
                     }

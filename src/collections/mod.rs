@@ -1,4 +1,7 @@
 mod mpf;
 mod set;
 
-pub use {mpf::MerklePatriciaForestry, set::Set};
+pub use {
+    mpf::{MerklePatriciaForestry, MerkleProof},
+    set::Set,
+};
