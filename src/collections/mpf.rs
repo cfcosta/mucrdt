@@ -1,7 +1,3 @@
-use digest::Digest;
-use proptest::{array::uniform4, prelude::*};
-use std::marker::PhantomData;
-
 /// Merkle Patricia Forestry (MPF): An Advanced Key-Value Data Structure
 ///
 /// This implementation is based on the one done by Matthias Benkort on the
@@ -106,11 +102,15 @@ use std::marker::PhantomData;
 ///
 /// When considering MPF, evaluate the trade-off between proof size and
 /// computational overhead for your specific use case.
+use std::marker::PhantomData;
+
+use digest::Digest;
+use proptest::{array::uniform4, prelude::*, collection::vec};
+
 use crate::{
-    prelude::{CmRDT, CvRDT, Item, MPFError, Result},
+    prelude::{CmRDT, CvRDT, MPFError, Result},
     values::Hash,
 };
-use proptest::collection::vec;
 
 /// Represents a Merkle Patricia Forestry
 pub struct MerklePatriciaForestry<D: Digest> {
@@ -465,8 +465,8 @@ impl<D: Digest + 'static> CvRDT for MerklePatriciaForestry<D> {
 }
 
 impl<D: Digest + 'static> CmRDT<MerkleProof> for MerklePatriciaForestry<D> {
-    fn apply(&mut self, op: &Item<MerkleProof>) -> Result<()> {
-        let mpf = Self::from_proof(op.value.clone());
+    fn apply(&mut self, op: &MerkleProof) -> Result<()> {
+        let mpf = Self::from_proof(op.clone());
         self.merge(&mpf)
     }
 }

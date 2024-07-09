@@ -13,7 +13,7 @@ pub trait CvRDT: Sized + Arbitrary + Default + Clone + PartialEq {
 }
 
 pub trait CmRDT<T>: Sized + Arbitrary + Default + Clone + PartialEq {
-    fn apply(&mut self, other: &Item<T>) -> Result<()>;
+    fn apply(&mut self, other: &T) -> Result<()>;
 }
 
 pub trait FromBytes

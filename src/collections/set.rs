@@ -4,12 +4,12 @@ use proptest::{collection::btree_set, prelude::*};
 
 use crate::prelude::*;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Set<T: Clone + Hash> {
-    pub values: BTreeSet<Item<T>>,
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Set<T: Clone + Hash + Ord> {
+    pub values: BTreeSet<T>,
 }
 
-impl<T: Clone + Hash> Default for Set<T> {
+impl<T: Clone + Hash + Ord> Default for Set<T> {
     fn default() -> Self {
         Self {
             values: BTreeSet::new(),
@@ -36,7 +36,7 @@ impl<T> CmRDT<T> for Set<T>
 where
     T: Arbitrary + Clone + Hash + PartialEq + Eq + Ord + 'static,
 {
-    fn apply(&mut self, other: &Item<T>) -> Result<()> {
+    fn apply(&mut self, other: &T) -> Result<()> {
         if !self.values.contains(other) {
             self.values.insert(other.clone());
         }
@@ -53,7 +53,7 @@ where
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
-        btree_set(any::<Item<T>>(), 0..10)
+        btree_set(any::<T>(), 0..10)
             .prop_map(|values| Self { values })
             .boxed()
     }
