@@ -546,6 +546,10 @@ mod tests {
     }
 
     type Blake3 = blake3::Hasher;
+    type Blake2s = blake2::Blake2s256;
+    type Sha256 = sha2::Sha256;
 
     generate_tests!(Blake3);
+    generate_tests!(Blake2s);
+    generate_tests!(Sha256);
 }

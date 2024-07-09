@@ -585,6 +585,7 @@ dependencies = [
  "paste",
  "proptest",
  "rand",
+ "sha2",
  "test-strategy",
  "thiserror",
 ]
