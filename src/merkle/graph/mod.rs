@@ -1,10 +1,15 @@
-use crate::collections::{MerkleProof, MerkleStep, Neighbor};
-use crate::{error::MPFError, values::Hash, prelude::*};
+use crate::prelude::*;
 use digest::Digest;
+
+mod proof;
+mod step;
+
+pub use proof::Proof;
+pub use step::Step;
 
 pub struct HashGraph<D: Digest> {
     root: Hash,
-    proof: MerkleProof,
+    proof: Proof,
     _phantom: std::marker::PhantomData<D>,
 }
 
@@ -12,6 +17,7 @@ impl<D: Digest> std::fmt::Debug for HashGraph<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("HashGraph")
             .field("root", &self.root)
+            .field("proof", &self.proof)
             .finish()
     }
 }
@@ -23,7 +29,7 @@ impl<D: Digest> proptest::arbitrary::Arbitrary for HashGraph<D> {
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
         use proptest::prelude::*;
 
-        (any::<Hash>(), any::<MerkleProof>())
+        (any::<Hash>(), any::<Proof>())
             .prop_map(|(root, proof)| HashGraph {
                 root,
                 proof,
@@ -36,15 +42,15 @@ impl<D: Digest> proptest::arbitrary::Arbitrary for HashGraph<D> {
 impl<D: Digest> HashGraph<D> {
     pub fn new() -> Self {
         HashGraph {
-            root: Hash::default(),
-            proof: MerkleProof(Vec::new()),
+            root: Hash::zero(),
+            proof: Proof::new(),
             _phantom: std::marker::PhantomData,
         }
     }
 
-    pub fn insert(&mut self, key: &[u8], value: &[u8]) -> Result<(), MPFError> {
+    pub fn insert(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
         if key.is_empty() || value.is_empty() {
-            return Err(MPFError::EmptyKeyOrValue);
+            return Err(Error::EmptyKeyOrValue);
         }
         let key_hash = Hash::digest::<D>(key);
         let value_hash = self.compute_value_hash(key, value);
@@ -54,21 +60,18 @@ impl<D: Digest> HashGraph<D> {
     }
 
     fn recalculate_root(&mut self) {
-        self.root = self.calculate_root_from_proof(&self.proof.clone());
+        self.root = self.calculate_root_from_proof(&self.proof);
     }
 
-    fn calculate_root_from_proof(&self, proof: &MerkleProof) -> Hash {
-        let mut current_hash = Hash::default();
-        for step in proof.0.iter().rev() {
+    fn calculate_root_from_proof(&self, proof: &Proof) -> Hash {
+        let mut current_hash = Hash::zero();
+        for step in proof.steps().iter().rev() {
             match step {
-                MerkleStep::Branch { neighbors, .. } => {
+                Step::Branch { neighbors, .. } => {
                     current_hash = Hash::combine::<D>(&neighbors[0], &neighbors[1]);
                 }
-                MerkleStep::Leaf { value, .. } => {
+                Step::Leaf { value, .. } => {
                     current_hash = *value;
-                }
-                MerkleStep::Fork { neighbor, .. } => {
-                    current_hash = Hash::combine::<D>(&current_hash, &neighbor.root);
                 }
             }
         }
@@ -85,7 +88,7 @@ impl<D: Digest> HashGraph<D> {
 
     fn insert_recursive(&mut self, key_hash: Hash, value_hash: Hash, depth: usize) -> Hash {
         if depth == 256 {
-            self.proof.0.push(MerkleStep::Leaf {
+            self.proof.push(Step::Leaf {
                 skip: depth,
                 key: key_hash,
                 value: value_hash,
@@ -95,9 +98,9 @@ impl<D: Digest> HashGraph<D> {
 
         let bit = (key_hash.as_ref()[depth / 8] >> (7 - (depth % 8))) & 1;
 
-        if let Some(step) = self.proof.0.get(depth).cloned() {
+        if let Some(step) = self.proof.get(depth).cloned() {
             match step {
-                MerkleStep::Branch { skip, neighbors } => {
+                Step::Branch { skip, neighbors } => {
                     let (new_left, new_right) = if bit == 0 {
                         (
                             self.insert_recursive(key_hash, value_hash, depth + 1),
@@ -110,19 +113,19 @@ impl<D: Digest> HashGraph<D> {
                         )
                     };
                     let new_hash = Hash::combine::<D>(&new_left, &new_right);
-                    self.proof.0[depth] = MerkleStep::Branch {
+                    self.proof.set(depth, Step::Branch {
                         skip,
-                        neighbors: [new_left, new_right, Hash::zero(), Hash::zero()],
-                    };
+                        neighbors: vec![new_left, new_right],
+                    });
                     new_hash
                 }
-                MerkleStep::Leaf { skip, key: existing_key, value: existing_value } => {
+                Step::Leaf { skip, key: existing_key, value: existing_value } => {
                     if existing_key == key_hash {
-                        self.proof.0[depth] = MerkleStep::Leaf {
+                        self.proof.set(depth, Step::Leaf {
                             skip,
                             key: key_hash,
                             value: value_hash,
-                        };
+                        });
                         value_hash
                     } else {
                         let existing_bit = (existing_key.as_ref()[depth / 8] >> (7 - (depth % 8))) & 1;
@@ -135,10 +138,10 @@ impl<D: Digest> HashGraph<D> {
                                 (existing_hash, new_hash)
                             };
                             let combined_hash = Hash::combine::<D>(&left, &right);
-                            self.proof.0[depth] = MerkleStep::Branch {
+                            self.proof.set(depth, Step::Branch {
                                 skip,
-                                neighbors: [left, right, Hash::zero(), Hash::zero()],
-                            };
+                                neighbors: vec![left, right],
+                            });
                             combined_hash
                         } else {
                             let (left, right) = if bit == 0 {
@@ -147,34 +150,17 @@ impl<D: Digest> HashGraph<D> {
                                 (existing_value, value_hash)
                             };
                             let new_hash = Hash::combine::<D>(&left, &right);
-                            self.proof.0[depth] = MerkleStep::Branch {
+                            self.proof.set(depth, Step::Branch {
                                 skip,
-                                neighbors: [left, right, Hash::zero(), Hash::zero()],
-                            };
+                                neighbors: vec![left, right],
+                            });
                             new_hash
                         }
                     }
                 }
-                MerkleStep::Fork { skip, neighbor } => {
-                    let new_neighbor = if bit == 0 {
-                        Neighbor {
-                            nibble: (key_hash.as_ref()[depth / 2] >> (4 - 4 * (depth % 2))) & 0xF,
-                            prefix: key_hash.as_ref()[depth / 2 + 1..].to_vec(),
-                            root: self.insert_recursive(key_hash, value_hash, depth + 1),
-                        }
-                    } else {
-                        neighbor.clone()
-                    };
-                    let new_hash = Hash::combine::<D>(&new_neighbor.root, &neighbor.root);
-                    self.proof.0[depth] = MerkleStep::Fork {
-                        skip,
-                        neighbor: new_neighbor,
-                    };
-                    new_hash
-                }
             }
         } else {
-            self.proof.0.push(MerkleStep::Leaf {
+            self.proof.push(Step::Leaf {
                 skip: depth,
                 key: key_hash,
                 value: value_hash,
@@ -193,9 +179,9 @@ impl<D: Digest> HashGraph<D> {
     }
 
     fn verify_recursive(&self, key_hash: Hash, value_hash: Hash, depth: usize) -> bool {
-        if let Some(step) = self.proof.0.get(depth) {
+        if let Some(step) = self.proof.get(depth) {
             match step {
-                MerkleStep::Branch { .. } => {
+                Step::Branch { .. } => {
                     let bit = (key_hash.as_ref()[depth / 8] >> (7 - (depth % 8))) & 1;
                     if bit == 0 {
                         self.verify_recursive(key_hash, value_hash, depth + 1)
@@ -203,26 +189,18 @@ impl<D: Digest> HashGraph<D> {
                         self.verify_recursive(key_hash, value_hash, depth + 1)
                     }
                 }
-                MerkleStep::Leaf {
+                Step::Leaf {
                     key: stored_key,
                     value: stored_value,
                     ..
                 } => key_hash == *stored_key && value_hash == *stored_value,
-                MerkleStep::Fork { .. } => {
-                    let bit = (key_hash.as_ref()[depth / 8] >> (7 - (depth % 8))) & 1;
-                    if bit == 0 {
-                        self.verify_recursive(key_hash, value_hash, depth + 1)
-                    } else {
-                        self.verify_recursive(key_hash, value_hash, depth + 1)
-                    }
-                }
             }
         } else {
             false
         }
     }
 
-    pub fn generate_proof(&self, key: &[u8]) -> Option<Vec<MerkleStep>> {
+    pub fn generate_proof(&self, key: &[u8]) -> Option<Vec<Step>> {
         if key.is_empty() {
             return None;
         }
@@ -230,42 +208,31 @@ impl<D: Digest> HashGraph<D> {
         self.generate_proof_recursive(key_hash, 0)
     }
 
-    fn generate_proof_recursive(&self, key_hash: Hash, depth: usize) -> Option<Vec<MerkleStep>> {
-        if let Some(step) = self.proof.0.get(depth) {
+    fn generate_proof_recursive(&self, key_hash: Hash, depth: usize) -> Option<Vec<Step>> {
+        if let Some(step) = self.proof.get(depth) {
             match step {
-                MerkleStep::Branch { skip, neighbors } => {
+                Step::Branch { skip, neighbors } => {
                     if let Some(mut proof) = self.generate_proof_recursive(key_hash, depth + 1) {
-                        proof.push(MerkleStep::Branch {
+                        proof.push(Step::Branch {
                             skip: *skip,
-                            neighbors: *neighbors,
+                            neighbors: neighbors.clone(),
                         });
                         Some(proof)
                     } else {
                         None
                     }
                 }
-                MerkleStep::Leaf {
+                Step::Leaf {
                     key: stored_key,
                     value,
                     ..
                 } => {
                     if stored_key == &key_hash {
-                        Some(vec![MerkleStep::Leaf {
+                        Some(vec![Step::Leaf {
                             skip: depth,
                             key: *stored_key,
                             value: *value,
                         }])
-                    } else {
-                        None
-                    }
-                }
-                MerkleStep::Fork { skip, neighbor } => {
-                    if let Some(mut proof) = self.generate_proof_recursive(key_hash, depth + 1) {
-                        proof.push(MerkleStep::Fork {
-                            skip: *skip,
-                            neighbor: neighbor.clone(),
-                        });
-                        Some(proof)
                     } else {
                         None
                     }
@@ -276,13 +243,13 @@ impl<D: Digest> HashGraph<D> {
         }
     }
 
-    pub fn verify_proof(&self, key: &[u8], value: &[u8], proof: &[MerkleStep]) -> bool {
+    pub fn verify_proof(&self, key: &[u8], value: &[u8], proof: &[Step]) -> bool {
         if key.is_empty() || value.is_empty() {
             return false;
         }
         let key_hash = Hash::digest::<D>(key);
         let value_hash = self.compute_value_hash(key, value);
-        let mut current_hash = if let Some(MerkleStep::Leaf {
+        let mut current_hash = if let Some(Step::Leaf {
             key: proof_key,
             value: proof_value,
             ..
@@ -298,7 +265,7 @@ impl<D: Digest> HashGraph<D> {
 
         for step in proof.iter().skip(1) {
             match step {
-                MerkleStep::Branch { neighbors, .. } => {
+                Step::Branch { neighbors, .. } => {
                     let bit = (key_hash.as_ref()[(proof.len() - 2) / 8]
                         >> (7 - ((proof.len() - 2) % 8)))
                         & 1;
@@ -306,16 +273,6 @@ impl<D: Digest> HashGraph<D> {
                         current_hash = Hash::combine::<D>(&current_hash, &neighbors[1]);
                     } else {
                         current_hash = Hash::combine::<D>(&neighbors[0], &current_hash);
-                    }
-                }
-                MerkleStep::Fork { neighbor, .. } => {
-                    let bit = (key_hash.as_ref()[(proof.len() - 2) / 8]
-                        >> (7 - ((proof.len() - 2) % 8)))
-                        & 1;
-                    if bit == 0 {
-                        current_hash = Hash::combine::<D>(&current_hash, &neighbor.root);
-                    } else {
-                        current_hash = Hash::combine::<D>(&neighbor.root, &current_hash);
                     }
                 }
                 _ => return false,
@@ -360,8 +317,8 @@ mod tests {
                     #[test]
                     fn test_empty_graph() {
                         let empty_graph = HashGraph::<$digest>::new();
-                        assert!(empty_graph.proof.0.is_empty());
-                        assert_eq!(empty_graph.root, Hash::default());
+                        assert!(empty_graph.proof.is_empty());
+                        assert_eq!(empty_graph.root, Hash::zero());
                     }
 
                     #[test_strategy::proptest]
@@ -388,12 +345,12 @@ mod tests {
                         #[strategy(vec(any::<u8>(), 100..1000))] large_key: Vec<u8>,
                         #[strategy(vec(any::<u8>(), 100..1000))] large_value: Vec<u8>
                     ) {
-                        let initial_size = graph.proof.0.len();
+                        let initial_size = graph.proof.len();
                         graph.insert(&large_key, &large_value).unwrap();
                         prop_assert!(graph.verify(&large_key, &large_value),
                             "Failed to verify large key-value pair");
 
-                        let size_increase = graph.proof.0.len() - initial_size;
+                        let size_increase = graph.proof.len() - initial_size;
                         prop_assert!(size_increase <= 256,
                             "Graph size increase {} exceeds maximum expected increase of 256",
                             size_increase);
@@ -478,7 +435,7 @@ mod tests {
                         #[strategy(any::<HashGraph<$digest>>())] graph: HashGraph<$digest>,
                         #[strategy(vec(any::<u8>(), 1..100))] key: Vec<u8>,
                         value: u8,
-                        #[strategy(vec(any::<MerkleStep>(), 0..10))] malicious_steps: Vec<MerkleStep>
+                        #[strategy(vec(any::<Step>(), 0..10))] malicious_steps: Vec<Step>
                     ) {
                         let mut malicious_proof = graph.proof.clone();
                         malicious_proof.0.extend(malicious_steps);

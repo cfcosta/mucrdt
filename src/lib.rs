@@ -1,6 +1,6 @@
 mod error;
 
-pub mod collections;
+pub mod merkle;
 pub mod prelude;
 pub mod testing;
 pub mod values;

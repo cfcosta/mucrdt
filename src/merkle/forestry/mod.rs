@@ -109,27 +109,33 @@ use proptest::{array::uniform4, collection::vec, prelude::*};
 
 use crate::{error::Error, prelude::*, values::Hash};
 
+mod proof;
+mod step;
+
+pub use proof::Proof;
+pub use step::Step;
+
 /// Represents a Merkle Patricia Forestry
-pub struct MerklePatriciaForestry<D: Digest> {
-    pub proof: MerkleProof,
+pub struct Forestry<D: Digest> {
+    pub proof: Proof,
     pub root: Hash,
     _phantom: PhantomData<D>,
 }
 
-impl<D: Digest> MerklePatriciaForestry<D> {
-    /// Constructs a new MerklePatriciaForestry from its proof.
+impl<D: Digest> Forestry<D> {
+    /// Constructs a new Forestry from its proof.
     ///
-    /// This function takes a MerkleProof and creates a new MerklePatriciaForestry instance.
+    /// This function takes a Proof and creates a new Forestry instance.
     /// It calculates the root hash from the provided proof and initializes the structure.
     ///
     /// # Arguments
     ///
-    /// * `proof` - A MerkleProof representing the state of the Merkle Patricia Forestry.
+    /// * `proof` - A Proof representing the state of the Merkle Patricia Forestry.
     ///
     /// # Returns
     ///
-    /// A new instance of MerklePatriciaForestry.
-    pub fn from_proof(proof: MerkleProof) -> Self {
+    /// A new instance of Forestry.
+    pub fn from_proof(proof: Proof) -> Self {
         let root = Self::calculate_root(&proof);
         Self {
             proof,
@@ -138,36 +144,36 @@ impl<D: Digest> MerklePatriciaForestry<D> {
         }
     }
 
-    /// Constructs a new empty MerklePatriciaForestry.
+    /// Constructs a new empty Forestry.
     ///
-    /// This function creates an empty MerklePatriciaForestry with no elements.
+    /// This function creates an empty Forestry with no elements.
     /// The proof is an empty vector and the root is set to the zero hash.
     ///
     /// # Returns
     ///
-    /// A new empty instance of MerklePatriciaForestry.
+    /// A new empty instance of Forestry.
     pub fn empty() -> Self {
         Self {
-            proof: MerkleProof(vec![]),
+            proof: Proof(vec![]),
             root: Hash::zero(),
             _phantom: PhantomData,
         }
     }
 
-    /// Checks if the MerklePatriciaForestry is empty.
+    /// Checks if the Forestry is empty.
     ///
-    /// This function determines whether the MerklePatriciaForestry contains any elements.
+    /// This function determines whether the Forestry contains any elements.
     ///
     /// # Returns
     ///
-    /// `true` if the MerklePatriciaForestry is empty, `false` otherwise.
+    /// `true` if the Forestry is empty, `false` otherwise.
     pub fn is_empty(&self) -> bool {
         self.proof.0.is_empty()
     }
 
     /// Verifies if an element is present in the trie with a specific value.
     ///
-    /// This function checks whether a given key-value pair exists in the MerklePatriciaForestry
+    /// This function checks whether a given key-value pair exists in the Forestry
     /// and is not marked as deleted.
     ///
     /// # Arguments
@@ -189,7 +195,7 @@ impl<D: Digest> MerklePatriciaForestry<D> {
 
     /// Inserts an element to the trie.
     ///
-    /// This function adds a new key-value pair to the MerklePatriciaForestry.
+    /// This function adds a new key-value pair to the Forestry.
     /// It updates the proof and recalculates the root hash.
     ///
     /// # Arguments
@@ -216,7 +222,7 @@ impl<D: Digest> MerklePatriciaForestry<D> {
 
     /// Removes an element from the trie.
     ///
-    /// This function marks a key-value pair as deleted in the MerklePatriciaForestry.
+    /// This function marks a key-value pair as deleted in the Forestry.
     /// It updates the proof and recalculates the root hash.
     ///
     /// # Arguments
@@ -249,18 +255,18 @@ impl<D: Digest> MerklePatriciaForestry<D> {
     ///
     /// * `key` - The Hash of the key to verify.
     /// * `value` - The Hash of the value to verify.
-    /// * `proof` - A reference to the MerkleProof to check against.
+    /// * `proof` - A reference to the Proof to check against.
     ///
     /// # Returns
     ///
     /// `true` if the key-value pair is present in the proof and not deleted, `false` otherwise.
-    pub fn verify_proof(&self, key: Hash, value: Hash, proof: &MerkleProof) -> bool {
+    pub fn verify_proof(&self, key: Hash, value: Hash, proof: &Proof) -> bool {
         if proof.0.is_empty() {
             return false;
         }
 
         proof.0.iter().any(|step| {
-            matches!(step, MerkleStep::Leaf { key: leaf_key, value: leaf_value, .. } if *leaf_key == key && *leaf_value == value && *leaf_value != Hash::zero())
+            matches!(step, Step::Leaf { key: leaf_key, value: leaf_value, .. } if *leaf_key == key && *leaf_value == value && *leaf_value != Hash::zero())
         })
     }
 
@@ -276,14 +282,14 @@ impl<D: Digest> MerklePatriciaForestry<D> {
     ///
     /// # Returns
     ///
-    /// A new MerkleProof containing the inserted key-value pair with path compression applied.
-    fn insert_to_proof(&self, key: Hash, value: Hash) -> MerkleProof {
+    /// A new Proof containing the inserted key-value pair with path compression applied.
+    fn insert_to_proof(&self, key: Hash, value: Hash) -> Proof {
         let mut new_proof = self.proof.clone();
         // Remove any existing leaf with the same key
         new_proof.0.retain(
-            |step| !matches!(step, MerkleStep::Leaf { key: leaf_key, .. } if *leaf_key == key),
+            |step| !matches!(step, Step::Leaf { key: leaf_key, .. } if *leaf_key == key),
         );
-        new_proof.0.push(MerkleStep::Leaf {
+        new_proof.0.push(Step::Leaf {
             skip: 0,
             key,
             value,
@@ -303,11 +309,11 @@ impl<D: Digest> MerklePatriciaForestry<D> {
     ///
     /// # Returns
     ///
-    /// A new MerkleProof with the key-value pair marked as deleted and path compression applied.
-    fn mark_as_deleted(&self, key: Hash) -> MerkleProof {
+    /// A new Proof with the key-value pair marked as deleted and path compression applied.
+    fn mark_as_deleted(&self, key: Hash) -> Proof {
         let mut new_proof = self.proof.clone();
         for step in new_proof.0.iter_mut() {
-            if let MerkleStep::Leaf {
+            if let Step::Leaf {
                 key: leaf_key,
                 value,
                 ..
@@ -331,16 +337,16 @@ impl<D: Digest> MerklePatriciaForestry<D> {
     ///
     /// # Arguments
     ///
-    /// * `proof` - A mutable reference to the MerkleProof to compress.
-    fn compress_path(proof: &mut MerkleProof) {
+    /// * `proof` - A mutable reference to the Proof to compress.
+    fn compress_path(proof: &mut Proof) {
         let mut i = 0;
         while i < proof.0.len() - 1 {
             if let (
-                MerkleStep::Branch {
+                Step::Branch {
                     skip: skip1,
                     neighbors: neighbors1,
                 },
-                MerkleStep::Branch {
+                Step::Branch {
                     skip: skip2,
                     neighbors: neighbors2,
                 },
@@ -352,7 +358,7 @@ impl<D: Digest> MerklePatriciaForestry<D> {
                     // Merge the two branch nodes
                     let new_skip = skip1 + skip2 + 1;
                     let new_neighbors = neighbors2.clone();
-                    proof.0[i] = MerkleStep::Branch {
+                    proof.0[i] = Step::Branch {
                         skip: new_skip,
                         neighbors: new_neighbors,
                     };
@@ -372,26 +378,26 @@ impl<D: Digest> MerklePatriciaForestry<D> {
     ///
     /// # Arguments
     ///
-    /// * `proof` - A reference to the MerkleProof to calculate the root from.
+    /// * `proof` - A reference to the Proof to calculate the root from.
     ///
     /// # Returns
     ///
     /// The calculated root Hash of the Merkle Patricia Forestry.
-    fn calculate_root(proof: &MerkleProof) -> Hash {
+    fn calculate_root(proof: &Proof) -> Hash {
         let mut hasher = D::new();
         for step in &proof.0 {
             match step {
-                MerkleStep::Branch { neighbors, .. } => {
+                Step::Branch { neighbors, .. } => {
                     for neighbor in neighbors {
                         hasher.update(neighbor.as_ref());
                     }
                 }
-                MerkleStep::Fork { neighbor, .. } => {
+                Step::Fork { neighbor, .. } => {
                     hasher.update([neighbor.nibble]);
                     hasher.update(&neighbor.prefix);
                     hasher.update(neighbor.root.as_ref());
                 }
-                MerkleStep::Leaf { key, value, .. } => {
+                Step::Leaf { key, value, .. } => {
                     hasher.update(key.as_ref());
                     hasher.update(value.as_ref());
                 }
@@ -401,7 +407,7 @@ impl<D: Digest> MerklePatriciaForestry<D> {
     }
 }
 
-impl<D: Digest> Clone for MerklePatriciaForestry<D> {
+impl<D: Digest> Clone for Forestry<D> {
     fn clone(&self) -> Self {
         Self {
             proof: self.proof.clone(),
@@ -411,41 +417,41 @@ impl<D: Digest> Clone for MerklePatriciaForestry<D> {
     }
 }
 
-impl<D: Digest> PartialEq for MerklePatriciaForestry<D> {
+impl<D: Digest> PartialEq for Forestry<D> {
     fn eq(&self, other: &Self) -> bool {
         self.root == other.root
     }
 }
 
-impl<D: Digest> Eq for MerklePatriciaForestry<D> {}
+impl<D: Digest> Eq for Forestry<D> {}
 
-impl<D: Digest> std::fmt::Debug for MerklePatriciaForestry<D> {
+impl<D: Digest> std::fmt::Debug for Forestry<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MerklePatriciaForestry")
+        f.debug_struct("Forestry")
             .field("proof", &self.proof)
             .field("root", &self.root)
             .finish()
     }
 }
 
-impl<D: Digest> Default for MerklePatriciaForestry<D> {
+impl<D: Digest> Default for Forestry<D> {
     fn default() -> Self {
         Self::empty()
     }
 }
 
-impl<D: Digest + 'static> Arbitrary for MerklePatriciaForestry<D> {
+impl<D: Digest + 'static> Arbitrary for Forestry<D> {
     type Parameters = ();
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
-        any::<MerkleProof>()
+        any::<Proof>()
             .prop_map(|proof| Self::from_proof(proof))
             .boxed()
     }
 }
 
-impl<D: Digest + 'static> CvRDT for MerklePatriciaForestry<D> {
+impl<D: Digest + 'static> CvRDT for Forestry<D> {
     fn merge(&mut self, other: &Self) -> Result<()> {
         let mut merged_proof = self.proof.clone();
         for step in other.proof.0.iter() {
@@ -461,250 +467,13 @@ impl<D: Digest + 'static> CvRDT for MerklePatriciaForestry<D> {
     }
 }
 
-impl<D: Digest + 'static> CmRDT<MerkleProof> for MerklePatriciaForestry<D> {
-    fn apply(&mut self, op: &MerkleProof) -> Result<()> {
+impl<D: Digest + 'static> CmRDT<Proof> for Forestry<D> {
+    fn apply(&mut self, op: &Proof) -> Result<()> {
         let mpf = Self::from_proof(op.clone());
         self.merge(&mpf)
     }
 }
 
-/// Represents a proof in the Merkle Patricia Forestry.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MerkleProof(pub Vec<MerkleStep>);
-
-impl PartialOrd for MerkleProof {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        // Compare the lengths of the proof vectors first
-        match self.0.len().partial_cmp(&other.0.len()) {
-            Some(core::cmp::Ordering::Equal) => {}
-            ord => return ord,
-        }
-
-        // If lengths are equal, compare each step
-        for (self_step, other_step) in self.0.iter().zip(other.0.iter()) {
-            match self_step.partial_cmp(other_step) {
-                Some(core::cmp::Ordering::Equal) => continue,
-                ord => return ord,
-            }
-        }
-
-        // If all steps are equal, the proofs are equal
-        Some(core::cmp::Ordering::Equal)
-    }
-}
-
-impl Arbitrary for MerkleProof {
-    type Parameters = usize;
-    type Strategy = BoxedStrategy<Self>;
-
-    fn arbitrary_with(max_depth: Self::Parameters) -> Self::Strategy {
-        vec(any::<MerkleStep>(), 0..=max_depth)
-            .prop_map(MerkleProof)
-            .boxed()
-    }
-}
-
-/// Represents a single step in a proof.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MerkleStep {
-    /// A branch node in the trie.
-    Branch {
-        /// The number of common prefix nibbles to skip.
-        skip: usize,
-        /// The hash digests of the neighboring branches.
-        neighbors: [Hash; 4],
-    },
-    /// A fork node in the trie.
-    Fork {
-        /// The number of common prefix nibbles to skip.
-        skip: usize,
-        /// The neighboring node information.
-        neighbor: Neighbor,
-    },
-    /// A leaf node in the trie.
-    Leaf {
-        /// The number of common prefix nibbles to skip.
-        skip: usize,
-        /// The full key of the leaf.
-        key: Hash,
-        /// The value stored at the leaf.
-        value: Hash,
-    },
-}
-
-impl ToBytes for MerkleStep {
-    type Output = Vec<u8>;
-
-    fn to_bytes(&self) -> Self::Output {
-        match self {
-            MerkleStep::Branch { skip, neighbors } => {
-                let mut bytes = vec![0u8]; // 0 indicates Branch
-                bytes.extend_from_slice(&skip.to_be_bytes());
-                for neighbor in neighbors {
-                    bytes.extend_from_slice(neighbor.as_ref());
-                }
-                bytes
-            }
-            MerkleStep::Fork { skip, neighbor } => {
-                let mut bytes = vec![1u8]; // 1 indicates Fork
-                bytes.extend_from_slice(&skip.to_be_bytes());
-                bytes.extend(neighbor.to_bytes());
-                bytes
-            }
-            MerkleStep::Leaf { skip, key, value } => {
-                let mut bytes = vec![2u8]; // 2 indicates Leaf
-                bytes.extend_from_slice(&skip.to_be_bytes());
-                bytes.extend_from_slice(key.as_ref());
-                bytes.extend_from_slice(value.as_ref());
-                bytes
-            }
-        }
-    }
-}
-
-impl FromBytes for MerkleStep {
-    fn from_bytes(bytes: &[u8]) -> Result<Self> {
-        if bytes.is_empty() {
-            return Err(Error::FailedDeserialization("Empty input".to_string()));
-        }
-
-        match bytes[0] {
-            0 => {
-                // Branch
-                if bytes.len() < 1 + std::mem::size_of::<usize>() + 4 * 32 {
-                    return Err(Error::FailedDeserialization(
-                        "Invalid length for Branch".to_string(),
-                    ));
-                }
-                let skip = usize::from_be_bytes(
-                    bytes[1..1 + std::mem::size_of::<usize>()]
-                        .try_into()
-                        .unwrap(),
-                );
-                let mut neighbors = [Hash::default(); 4];
-                for (i, neighbor) in neighbors.iter_mut().enumerate() {
-                    let start = 1 + std::mem::size_of::<usize>() + i * 32;
-                    *neighbor = Hash::from_slice(&bytes[start..start + 32]);
-                }
-                Ok(MerkleStep::Branch { skip, neighbors })
-            }
-            1 => {
-                // Fork
-                if bytes.len() < 1 + std::mem::size_of::<usize>() + 33 {
-                    return Err(Error::FailedDeserialization(
-                        "Invalid length for Fork".to_string(),
-                    ));
-                }
-                let skip = usize::from_be_bytes(
-                    bytes[1..1 + std::mem::size_of::<usize>()]
-                        .try_into()
-                        .unwrap(),
-                );
-                let neighbor = Neighbor::from_bytes(&bytes[1 + std::mem::size_of::<usize>()..])?;
-                Ok(MerkleStep::Fork { skip, neighbor })
-            }
-            2 => {
-                // Leaf
-                if bytes.len() < 1 + std::mem::size_of::<usize>() + 64 {
-                    return Err(Error::FailedDeserialization(
-                        "Invalid length for Leaf".to_string(),
-                    ));
-                }
-                let skip = usize::from_be_bytes(
-                    bytes[1..1 + std::mem::size_of::<usize>()]
-                        .try_into()
-                        .unwrap(),
-                );
-                let key = Hash::from_slice(
-                    &bytes[1 + std::mem::size_of::<usize>()..1 + std::mem::size_of::<usize>() + 32],
-                );
-                let value = Hash::from_slice(
-                    &bytes[1 + std::mem::size_of::<usize>() + 32
-                        ..1 + std::mem::size_of::<usize>() + 64],
-                );
-                Ok(MerkleStep::Leaf { skip, key, value })
-            }
-            _ => Err(Error::FailedDeserialization(
-                "Invalid MerkleStep type".to_string(),
-            )),
-        }
-    }
-}
-
-impl Arbitrary for MerkleStep {
-    type Parameters = ();
-    type Strategy = BoxedStrategy<Self>;
-
-    fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
-        prop_oneof![
-            (any::<usize>(), uniform4(any::<Hash>()))
-                .prop_map(|(skip, neighbors)| MerkleStep::Branch { skip, neighbors }),
-            (any::<usize>(), any::<Neighbor>())
-                .prop_map(|(skip, neighbor)| MerkleStep::Fork { skip, neighbor }),
-            (any::<usize>(), any::<Hash>(), any::<Hash>())
-                .prop_map(|(skip, key, value)| MerkleStep::Leaf { skip, key, value })
-        ]
-        .boxed()
-    }
-}
-
-impl PartialOrd for MerkleStep {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        match (self, other) {
-            (
-                MerkleStep::Branch {
-                    skip: s1,
-                    neighbors: n1,
-                },
-                MerkleStep::Branch {
-                    skip: s2,
-                    neighbors: n2,
-                },
-            ) => match s1.partial_cmp(s2) {
-                Some(core::cmp::Ordering::Equal) => n1.partial_cmp(n2),
-                ord => ord,
-            },
-            (
-                MerkleStep::Fork {
-                    skip: s1,
-                    neighbor: n1,
-                },
-                MerkleStep::Fork {
-                    skip: s2,
-                    neighbor: n2,
-                },
-            ) => match s1.partial_cmp(s2) {
-                Some(core::cmp::Ordering::Equal) => n1.partial_cmp(n2),
-                ord => ord,
-            },
-            (
-                MerkleStep::Leaf {
-                    skip: s1,
-                    key: k1,
-                    value: v1,
-                },
-                MerkleStep::Leaf {
-                    skip: s2,
-                    key: k2,
-                    value: v2,
-                },
-            ) => match s1.partial_cmp(s2) {
-                Some(core::cmp::Ordering::Equal) => match k1.partial_cmp(k2) {
-                    Some(core::cmp::Ordering::Equal) => v1.partial_cmp(v2),
-                    ord => ord,
-                },
-                ord => ord,
-            },
-            // Define an arbitrary order between different Step variants
-            (MerkleStep::Branch { .. }, _) => Some(core::cmp::Ordering::Less),
-            (_, MerkleStep::Branch { .. }) => Some(core::cmp::Ordering::Greater),
-            (MerkleStep::Fork { .. }, MerkleStep::Leaf { .. }) => Some(core::cmp::Ordering::Less),
-            (MerkleStep::Leaf { .. }, MerkleStep::Fork { .. }) => {
-                Some(core::cmp::Ordering::Greater)
-            }
-        }
-    }
-}
 
 /// Represents a neighboring node in a fork step of a proof.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
@@ -781,19 +550,19 @@ mod tests {
 
                     #[test_strategy::proptest]
                     fn test_verify_proof(
-                        #[strategy(any::<MerklePatriciaForestry<$digest>>())] mut trie: MerklePatriciaForestry<$digest>,
+                        #[strategy(any::<Forestry<$digest>>())] mut trie: Forestry<$digest>,
                         #[strategy(non_empty_string())] key: String,
                         value: String
                     ) {
                         trie.insert(key.as_bytes(), value.as_bytes())?;
                         prop_assert!(trie.verify(key.as_bytes(), value.as_bytes()),
-                            "MerkleProof verification failed for key: {:?}, value: {:?}",
+                            "Proof verification failed for key: {:?}, value: {:?}",
                             key, value);
                     }
 
                     #[test_strategy::proptest]
                     fn test_insert(
-                        #[strategy(any::<MerklePatriciaForestry<$digest>>())] mut trie: MerklePatriciaForestry<$digest>,
+                        #[strategy(any::<Forestry<$digest>>())] mut trie: Forestry<$digest>,
                         #[strategy(non_empty_string())] key: String,
                         value: String
                     ) {
@@ -805,7 +574,7 @@ mod tests {
 
                     #[test_strategy::proptest]
                     fn test_multiple_inserts(
-                        #[strategy(any::<MerklePatriciaForestry<$digest>>())] mut trie: MerklePatriciaForestry<$digest>,
+                        #[strategy(any::<Forestry<$digest>>())] mut trie: Forestry<$digest>,
                         #[strategy(non_empty_string())] key1: String,
                         value1: String,
                         #[strategy(non_empty_string())] key2: String,
@@ -829,7 +598,7 @@ mod tests {
 
                     #[test]
                     fn test_empty_trie() {
-                        let empty_trie = MerklePatriciaForestry::<$digest>::empty();
+                        let empty_trie = Forestry::<$digest>::empty();
                         assert!(empty_trie.is_empty());
                     }
 
@@ -838,7 +607,7 @@ mod tests {
                         #[strategy(non_empty_string())] key: String,
                         value: String
                     ) {
-                        let mut trie = MerklePatriciaForestry::<$digest>::empty();
+                        let mut trie = Forestry::<$digest>::empty();
                         assert!(trie.is_empty());
 
                         let empty_root = trie.root;
@@ -860,11 +629,11 @@ mod tests {
                         prop_assume!(value1 != value2);
 
                         // Test empty trie
-                        let empty_trie = MerklePatriciaForestry::<$digest>::empty();
+                        let empty_trie = Forestry::<$digest>::empty();
                         prop_assert!(!empty_trie.verify(key1.as_bytes(), value1.as_bytes()));
 
                         // Test non-empty trie
-                        let mut non_empty_trie = MerklePatriciaForestry::<$digest>::empty();
+                        let mut non_empty_trie = Forestry::<$digest>::empty();
                         non_empty_trie.insert(key1.as_bytes(), value1.as_bytes())?;
 
                         prop_assert!(non_empty_trie.verify(key1.as_bytes(), value1.as_bytes()));
@@ -888,7 +657,7 @@ mod tests {
                         prop_assume!(key1 != key2);
                         prop_assume!(value1 != value2);
 
-                        let mut trie = MerklePatriciaForestry::<$digest>::empty();
+                        let mut trie = Forestry::<$digest>::empty();
 
                         // Insert and then remove key1
                         trie.insert(key1.as_bytes(), value1.as_bytes())?;
@@ -931,25 +700,25 @@ mod tests {
 
                     #[test_strategy::proptest]
                     fn test_proof_size(
-                        #[strategy(any::<MerklePatriciaForestry<$digest>>())] trie: MerklePatriciaForestry<$digest>
+                        #[strategy(any::<Forestry<$digest>>())] trie: Forestry<$digest>
                     ) {
                         let proof = trie.proof.clone();
                         prop_assert!(proof.0.len() <= 130 * (4 + 1),
-                            "MerkleProof size {} exceeds expected maximum",
+                            "Proof size {} exceeds expected maximum",
                             proof.0.len());
                     }
 
                     #[test]
                     fn test_empty_key_or_value() {
-                        let mut trie = MerklePatriciaForestry::<$digest>::empty();
+                        let mut trie = Forestry::<$digest>::empty();
                         assert!(matches!(trie.insert(&[], b"value"), Err(MPFError::EmptyKeyOrValue)));
                         assert!(trie.insert(b"key", &[]).is_ok());
                     }
 
                     #[test_strategy::proptest]
                     fn test_root_proof_equality(
-                        #[strategy(any::<MerklePatriciaForestry<$digest>>())] trie1: MerklePatriciaForestry<$digest>,
-                        #[strategy(any::<MerklePatriciaForestry<$digest>>())] trie2: MerklePatriciaForestry<$digest>
+                        #[strategy(any::<Forestry<$digest>>())] trie1: Forestry<$digest>,
+                        #[strategy(any::<Forestry<$digest>>())] trie2: Forestry<$digest>
                     ) {
                         prop_assert_eq!(
                             trie1.root == trie2.root,
@@ -960,29 +729,29 @@ mod tests {
 
                     #[test_strategy::proptest]
                     fn test_default_is_empty(
-                        #[strategy(Just(MerklePatriciaForestry::<$digest>::default()))] default_trie: MerklePatriciaForestry<$digest>
+                        #[strategy(Just(Forestry::<$digest>::default()))] default_trie: Forestry<$digest>
                     ) {
                         prop_assert!(default_trie.is_empty(), "Default instance should be empty");
                     }
 
                     #[test_strategy::proptest]
                     fn test_root_matches_calculated(
-                        #[strategy(any::<MerklePatriciaForestry<$digest>>())] trie: MerklePatriciaForestry<$digest>
+                        #[strategy(any::<Forestry<$digest>>())] trie: Forestry<$digest>
                     ) {
-                        let calculated_root = MerklePatriciaForestry::<$digest>::calculate_root(&trie.proof);
+                        let calculated_root = Forestry::<$digest>::calculate_root(&trie.proof);
                         prop_assert_eq!(trie.root, calculated_root, "Root should match calculated root");
                     }
 
                     #[test_strategy::proptest]
-                    fn test_from_proof_root_calculation(#[strategy(any::<MerkleProof>())] proof: MerkleProof) {
-                        let trie = MerklePatriciaForestry::<$digest>::from_proof(proof.clone());
-                        let calculated_root = MerklePatriciaForestry::<$digest>::calculate_root(&proof);
+                    fn test_from_proof_root_calculation(#[strategy(any::<Proof>())] proof: Proof) {
+                        let trie = Forestry::<$digest>::from_proof(proof.clone());
+                        let calculated_root = Forestry::<$digest>::calculate_root(&proof);
                         prop_assert_eq!(trie.root, calculated_root, "Root should match calculated root after from_proof");
                     }
 
                     #[test_strategy::proptest]
                     fn test_verify_non_existent(
-                        #[strategy(any::<MerklePatriciaForestry<$digest>>())] mut trie: MerklePatriciaForestry<$digest>,
+                        #[strategy(any::<Forestry<$digest>>())] mut trie: Forestry<$digest>,
                         #[strategy(non_empty_string())] key1: String,
                         value1: String,
                         #[strategy(non_empty_string())] key2: String,
@@ -1008,7 +777,7 @@ mod tests {
 
                     #[test_strategy::proptest]
                     fn test_remove_through_tombstone(
-                        #[strategy(any::<MerklePatriciaForestry<$digest>>())] mut trie: MerklePatriciaForestry<$digest>,
+                        #[strategy(any::<Forestry<$digest>>())] mut trie: Forestry<$digest>,
                         #[strategy(non_empty_string())] key: String,
                         value: String
                     ) {
@@ -1034,7 +803,7 @@ mod tests {
 
                     #[test_strategy::proptest]
                     fn test_multiple_removes(
-                        #[strategy(any::<MerklePatriciaForestry<$digest>>())] mut trie: MerklePatriciaForestry<$digest>,
+                        #[strategy(any::<Forestry<$digest>>())] mut trie: Forestry<$digest>,
                         #[strategy(non_empty_string())] key1: String,
                         value1: String,
                         #[strategy(non_empty_string())] key2: String,
@@ -1067,7 +836,7 @@ mod tests {
 
                     #[test_strategy::proptest]
                     fn test_second_preimage_resistance(
-                        mut trie: MerklePatriciaForestry<$digest>,
+                        mut trie: Forestry<$digest>,
                         #[strategy(vec(any::<u8>(), 1..100))] key1: Vec<u8>,
                         #[strategy(vec(any::<u8>(), 1..100))] key2: Vec<u8>,
                         value1: u8,
@@ -1090,10 +859,10 @@ mod tests {
 
                     #[test_strategy::proptest]
                     fn test_malicious_proof_resistance(
-                        trie: MerklePatriciaForestry<$digest>,
+                        trie: Forestry<$digest>,
                         key: Vec<u8>,
                         value: u8,
-                        malicious_steps: Vec<MerkleStep>
+                        malicious_steps: Vec<Step>
                     ) {
                         // Skip the test if the trie is empty and there are no malicious steps
                         prop_assume!(!trie.is_empty() || !malicious_steps.is_empty());
@@ -1101,7 +870,7 @@ mod tests {
                         let mut malicious_proof = trie.proof.clone();
                         malicious_proof.0.extend(malicious_steps);
 
-                        let malicious_trie = MerklePatriciaForestry::<$digest>::from_proof(malicious_proof);
+                        let malicious_trie = Forestry::<$digest>::from_proof(malicious_proof);
 
                         // Verify that the malicious trie doesn't falsely claim to contain the key-value pair
                         prop_assert!(!malicious_trie.verify(&key, &[value]), "Malicious proof falsely verified");
@@ -1112,7 +881,7 @@ mod tests {
 
                     #[test_strategy::proptest]
                     fn test_large_key_value_pairs(
-                        mut trie: MerklePatriciaForestry<$digest>,
+                        mut trie: Forestry<$digest>,
                         #[strategy(vec(any::<u8>(), 100..1000))] large_key: Vec<u8>,
                         #[strategy(vec(any::<u8>(), 100..1000))] large_value: Vec<u8>
                     ) {
@@ -1127,9 +896,9 @@ mod tests {
                             size_increase, large_key.len(), large_value.len());
                     }
 
-                    type Mpf = MerklePatriciaForestry<$digest>;
+                    type Mpf = Forestry<$digest>;
                     crate::test_state_crdt_properties!(Mpf);
-                    crate::test_op_crdt_properties!(Mpf, MerkleProof);
+                    crate::test_op_crdt_properties!(Mpf, Proof);
                 }
             }
         };
@@ -1144,12 +913,12 @@ mod tests {
     generate_mpf_tests!(Sha256);
 
     #[test_strategy::proptest]
-    fn test_merkle_proof_reflexive(proof: MerkleProof) {
+    fn test_merkle_proof_reflexive(proof: Proof) {
         prop_assert_eq!(proof.partial_cmp(&proof), Some(std::cmp::Ordering::Equal));
     }
 
     #[test_strategy::proptest]
-    fn test_merkle_proof_antisymmetric(proof1: MerkleProof, proof2: MerkleProof) {
+    fn test_merkle_proof_antisymmetric(proof1: Proof, proof2: Proof) {
         if proof1 == proof2 {
             prop_assert_eq!(proof1.partial_cmp(&proof2), Some(std::cmp::Ordering::Equal));
             prop_assert_eq!(proof2.partial_cmp(&proof1), Some(std::cmp::Ordering::Equal));
@@ -1161,7 +930,7 @@ mod tests {
     }
 
     #[test_strategy::proptest]
-    fn test_merkle_proof_transitive(proof1: MerkleProof, proof2: MerkleProof, proof3: MerkleProof) {
+    fn test_merkle_proof_transitive(proof1: Proof, proof2: Proof, proof3: Proof) {
         if let (Some(ord1), Some(ord2)) = (proof1.partial_cmp(&proof2), proof2.partial_cmp(&proof3))
         {
             if ord1 == ord2 {
@@ -1171,7 +940,7 @@ mod tests {
     }
 
     #[test_strategy::proptest]
-    fn test_merkle_proof_consistency(proof1: MerkleProof, proof2: MerkleProof) {
+    fn test_merkle_proof_consistency(proof1: Proof, proof2: Proof) {
         let cmp1 = proof1.partial_cmp(&proof2);
         let cmp2 = proof2.partial_cmp(&proof1);
 
