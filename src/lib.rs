@@ -2,8 +2,7 @@ mod error;
 
 pub mod merkle;
 pub mod prelude;
-pub mod testing;
-pub mod values;
+pub mod hash;
 
 #[doc(hidden)]
 /// This is a hidden module to make the macros defined on this crate available for the users.

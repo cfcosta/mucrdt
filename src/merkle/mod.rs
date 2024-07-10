@@ -43,7 +43,7 @@ impl ToBytes for Neighbor {
 impl FromBytes for Neighbor {
     fn from_bytes(bytes: &[u8]) -> Result<Self> {
         if bytes.len() < 33 {
-            return Err(Error::FailedDeserialization(
+            return Err(Error::Deserialization(
                 "Invalid length for Neighbor".to_string(),
             ));
         }

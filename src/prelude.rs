@@ -1,9 +1,7 @@
 use proptest::prelude::*;
 
 pub use crate::{
-    merkle::*, error::*, impl_associate_bytes_types, prop_assert_changes,
-    prop_assert_does_not_change, test_op_crdt_properties, test_state_crdt_properties,
-    test_to_bytes, test_to_hex, testing::*, values::*,
+    merkle::*, error::*, hash::*,
 };
 
 pub trait CvRDT: Sized + Arbitrary + Default + Clone + PartialEq {

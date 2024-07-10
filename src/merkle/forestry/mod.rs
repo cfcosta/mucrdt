@@ -105,9 +105,9 @@
 use std::marker::PhantomData;
 
 use digest::Digest;
-use proptest::{array::uniform4, collection::vec, prelude::*};
+use proptest::prelude::*;
 
-use crate::{error::Error, prelude::*, values::Hash};
+use crate::{error::Error, prelude::*};
 
 mod proof;
 mod step;
@@ -154,7 +154,7 @@ impl<D: Digest> Forestry<D> {
     /// A new empty instance of Forestry.
     pub fn empty() -> Self {
         Self {
-            proof: Proof(vec![]),
+            proof: Proof::new(),
             root: Hash::zero(),
             _phantom: PhantomData,
         }
@@ -168,7 +168,7 @@ impl<D: Digest> Forestry<D> {
     ///
     /// `true` if the Forestry is empty, `false` otherwise.
     pub fn is_empty(&self) -> bool {
-        self.proof.0.is_empty()
+        self.proof.is_empty()
     }
 
     /// Verifies if an element is present in the trie with a specific value.
@@ -205,10 +205,10 @@ impl<D: Digest> Forestry<D> {
     ///
     /// # Returns
     ///
-    /// A Result indicating success or an MPFError if the operation fails.
-    pub fn insert(&mut self, key: &[u8], value: &[u8]) -> Result<(), MPFError> {
+    /// A Result indicating success or an Error if the operation fails.
+    pub fn insert(&mut self, key: &[u8], value: &[u8]) -> Result<(), Error> {
         if key.is_empty() {
-            return Err(MPFError::EmptyKeyOrValue);
+            return Err(Error::EmptyKeyOrValue);
         }
 
         let key_hash = Hash::digest::<D>(key);
@@ -231,10 +231,10 @@ impl<D: Digest> Forestry<D> {
     ///
     /// # Returns
     ///
-    /// A Result indicating success or an MPFError if the operation fails.
-    pub fn remove(&mut self, key: &[u8]) -> Result<(), MPFError> {
+    /// A Result indicating success or an Error if the operation fails.
+    pub fn remove(&mut self, key: &[u8]) -> Result<(), Error> {
         if key.is_empty() {
-            return Err(MPFError::EmptyKeyOrValue);
+            return Err(Error::EmptyKeyOrValue);
         }
 
         let key_hash = Hash::digest::<D>(key);
@@ -261,11 +261,11 @@ impl<D: Digest> Forestry<D> {
     ///
     /// `true` if the key-value pair is present in the proof and not deleted, `false` otherwise.
     pub fn verify_proof(&self, key: Hash, value: Hash, proof: &Proof) -> bool {
-        if proof.0.is_empty() {
+        if proof.is_empty() {
             return false;
         }
 
-        proof.0.iter().any(|step| {
+        proof.iter().any(|step| {
             matches!(step, Step::Leaf { key: leaf_key, value: leaf_value, .. } if *leaf_key == key && *leaf_value == value && *leaf_value != Hash::zero())
         })
     }
@@ -286,10 +286,10 @@ impl<D: Digest> Forestry<D> {
     fn insert_to_proof(&self, key: Hash, value: Hash) -> Proof {
         let mut new_proof = self.proof.clone();
         // Remove any existing leaf with the same key
-        new_proof.0.retain(
+        new_proof.retain(
             |step| !matches!(step, Step::Leaf { key: leaf_key, .. } if *leaf_key == key),
         );
-        new_proof.0.push(Step::Leaf {
+        new_proof.push(Step::Leaf {
             skip: 0,
             key,
             value,
@@ -312,7 +312,7 @@ impl<D: Digest> Forestry<D> {
     /// A new Proof with the key-value pair marked as deleted and path compression applied.
     fn mark_as_deleted(&self, key: Hash) -> Proof {
         let mut new_proof = self.proof.clone();
-        for step in new_proof.0.iter_mut() {
+        for step in new_proof.iter_mut() {
             if let Step::Leaf {
                 key: leaf_key,
                 value,
@@ -340,7 +340,7 @@ impl<D: Digest> Forestry<D> {
     /// * `proof` - A mutable reference to the Proof to compress.
     fn compress_path(proof: &mut Proof) {
         let mut i = 0;
-        while i < proof.0.len() - 1 {
+        while i < proof.len() - 1 {
             if let (
                 Step::Branch {
                     skip: skip1,
@@ -350,7 +350,7 @@ impl<D: Digest> Forestry<D> {
                     skip: skip2,
                     neighbors: neighbors2,
                 },
-            ) = (&proof.0[i], &proof.0[i + 1])
+            ) = (&proof[i], &proof[i + 1])
             {
                 if neighbors1.iter().filter(|&&n| n != Hash::zero()).count() == 1
                     && neighbors2.iter().filter(|&&n| n != Hash::zero()).count() == 1
@@ -358,11 +358,11 @@ impl<D: Digest> Forestry<D> {
                     // Merge the two branch nodes
                     let new_skip = skip1 + skip2 + 1;
                     let new_neighbors = neighbors2.clone();
-                    proof.0[i] = Step::Branch {
+                    proof[i] = Step::Branch {
                         skip: new_skip,
                         neighbors: new_neighbors,
                     };
-                    proof.0.remove(i + 1);
+                    proof.remove(i + 1);
                 } else {
                     i += 1;
                 }
@@ -385,7 +385,7 @@ impl<D: Digest> Forestry<D> {
     /// The calculated root Hash of the Merkle Patricia Forestry.
     fn calculate_root(proof: &Proof) -> Hash {
         let mut hasher = D::new();
-        for step in &proof.0 {
+        for step in proof.iter() {
             match step {
                 Step::Branch { neighbors, .. } => {
                     for neighbor in neighbors {
@@ -454,9 +454,9 @@ impl<D: Digest + 'static> Arbitrary for Forestry<D> {
 impl<D: Digest + 'static> CvRDT for Forestry<D> {
     fn merge(&mut self, other: &Self) -> Result<()> {
         let mut merged_proof = self.proof.clone();
-        for step in other.proof.0.iter() {
-            if !merged_proof.0.contains(step) {
-                merged_proof.0.push(step.clone());
+        for step in other.proof.iter() {
+            if !merged_proof.contains(step) {
+                merged_proof.push(step.clone());
             }
         }
 
@@ -515,7 +515,7 @@ impl ToBytes for Neighbor {
 impl FromBytes for Neighbor {
     fn from_bytes(bytes: &[u8]) -> Result<Self> {
         if bytes.len() < 33 {
-            return Err(Error::FailedDeserialization(
+            return Err(Error::Deserialization(
                 "Invalid length for Neighbor".to_string(),
             ));
         }
@@ -542,7 +542,7 @@ mod tests {
                 mod [<$digest _tests>] {
                     use super::*;
                     use $digest;
-                    use proptest::strategy::Strategy;
+                    use proptest::collection::vec;
 
                     fn non_empty_string() -> impl Strategy<Value = String> {
                         any::<String>().prop_filter("must not be empty", |s| !s.is_empty())
@@ -703,15 +703,15 @@ mod tests {
                         #[strategy(any::<Forestry<$digest>>())] trie: Forestry<$digest>
                     ) {
                         let proof = trie.proof.clone();
-                        prop_assert!(proof.0.len() <= 130 * (4 + 1),
+                        prop_assert!(proof.len() <= 130 * (4 + 1),
                             "Proof size {} exceeds expected maximum",
-                            proof.0.len());
+                            proof.len());
                     }
 
                     #[test]
                     fn test_empty_key_or_value() {
                         let mut trie = Forestry::<$digest>::empty();
-                        assert!(matches!(trie.insert(&[], b"value"), Err(MPFError::EmptyKeyOrValue)));
+                        assert!(matches!(trie.insert(&[], b"value"), Err(Error::EmptyKeyOrValue)));
                         assert!(trie.insert(b"key", &[]).is_ok());
                     }
 
@@ -868,7 +868,7 @@ mod tests {
                         prop_assume!(!trie.is_empty() || !malicious_steps.is_empty());
 
                         let mut malicious_proof = trie.proof.clone();
-                        malicious_proof.0.extend(malicious_steps);
+                        malicious_proof.extend(malicious_steps);
 
                         let malicious_trie = Forestry::<$digest>::from_proof(malicious_proof);
 
@@ -885,12 +885,12 @@ mod tests {
                         #[strategy(vec(any::<u8>(), 100..1000))] large_key: Vec<u8>,
                         #[strategy(vec(any::<u8>(), 100..1000))] large_value: Vec<u8>
                     ) {
-                        let initial_size = trie.proof.0.len();
+                        let initial_size = trie.proof.len();
                         trie.insert(&large_key, &large_value)?;
                         prop_assert!(trie.verify(&large_key, &large_value), "Failed to verify large key-value pair");
 
                         // Check that trie size increase is reasonable
-                        let size_increase = trie.proof.0.len() - initial_size;
+                        let size_increase = trie.proof.len() - initial_size;
                         prop_assert!(size_increase <= large_key.len() + large_value.len(),
                             "Trie size increase {} is larger than key size {} plus value size {}",
                             size_increase, large_key.len(), large_value.len());

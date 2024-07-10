@@ -99,6 +99,12 @@ impl AsRef<[u8]> for Hash {
     }
 }
 
+impl AsMut<[u8]> for Hash {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.0.as_mut()
+    }
+}
+
 impl From<Hash> for [u8; 32] {
     fn from(val: Hash) -> Self {
         val.0

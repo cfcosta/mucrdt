@@ -1,6 +1,6 @@
 use core::cmp::Ordering;
 
-use proptest::{ array::uniform4, collection::vec, prelude::* };
+use proptest::{ array::uniform4, prelude::* };
 
 use crate::{ prelude::*, merkle::Neighbor };
 
@@ -65,14 +65,14 @@ impl ToBytes for Step {
 impl FromBytes for Step {
     fn from_bytes(bytes: &[u8]) -> Result<Self> {
         if bytes.is_empty() {
-            return Err(Error::FailedDeserialization("Empty input".to_string()));
+            return Err(Error::Deserialization("Empty input".to_string()));
         }
 
         match bytes[0] {
             0 => {
                 // Branch
                 if bytes.len() < 1 + std::mem::size_of::<usize>() + 4 * 32 {
-                    return Err(Error::FailedDeserialization(
+                    return Err(Error::Deserialization(
                         "Invalid length for Branch".to_string(),
                     ));
                 }
@@ -91,7 +91,7 @@ impl FromBytes for Step {
             1 => {
                 // Fork
                 if bytes.len() < 1 + std::mem::size_of::<usize>() + 33 {
-                    return Err(Error::FailedDeserialization(
+                    return Err(Error::Deserialization(
                         "Invalid length for Fork".to_string(),
                     ));
                 }
@@ -106,7 +106,7 @@ impl FromBytes for Step {
             2 => {
                 // Leaf
                 if bytes.len() < 1 + std::mem::size_of::<usize>() + 64 {
-                    return Err(Error::FailedDeserialization(
+                    return Err(Error::Deserialization(
                         "Invalid length for Leaf".to_string(),
                     ));
                 }
@@ -124,7 +124,7 @@ impl FromBytes for Step {
                 );
                 Ok(Step::Leaf { skip, key, value })
             }
-            _ => Err(Error::FailedDeserialization(
+            _ => Err(Error::Deserialization(
                 "Invalid Step type".to_string(),
             )),
         }
