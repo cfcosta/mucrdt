@@ -1,4 +1,5 @@
 use std::fmt::{Display, Formatter};
+use std::hash::{Hash as StdHash, Hasher};
 
 use digest::Digest;
 use proptest::prelude::*;
@@ -29,6 +30,12 @@ impl Arbitrary for Hash {
 
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
         any::<[u8; 32]>().prop_map(Hash::new).boxed()
+    }
+}
+
+impl StdHash for Hash {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
     }
 }
 
@@ -63,6 +70,13 @@ impl Hash {
     pub fn digest<D: Digest>(data: &[u8]) -> Self {
         let mut hasher = D::new();
         hasher.update(data);
+        Hash::from_slice(&hasher.finalize())
+    }
+
+    pub fn combine<D: Digest>(left: &Hash, right: &Hash) -> Self {
+        let mut hasher = D::new();
+        hasher.update(left.as_ref());
+        hasher.update(right.as_ref());
         Hash::from_slice(&hasher.finalize())
     }
 }

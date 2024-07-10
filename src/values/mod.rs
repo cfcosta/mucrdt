@@ -5,7 +5,4 @@ mod pubkey;
 mod signature;
 mod timestamp;
 
-pub use {
-    account::*, hash::*, identifier::*, pubkey::*, signature::*,
-    timestamp::*,
-};
+pub use {account::*, hash::*, identifier::*, pubkey::*, signature::*, timestamp::*};

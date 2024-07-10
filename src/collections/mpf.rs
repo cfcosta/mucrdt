@@ -105,11 +105,12 @@
 use std::marker::PhantomData;
 
 use digest::Digest;
-use proptest::{array::uniform4, prelude::*, collection::vec};
+use proptest::{array::uniform4, collection::vec, prelude::*};
 
 use crate::{
-    prelude::{CmRDT, CvRDT, MPFError, Result},
+    prelude::*,
     values::Hash,
+    error::Error,
 };
 
 /// Represents a Merkle Patricia Forestry
@@ -263,7 +264,7 @@ impl<D: Digest> MerklePatriciaForestry<D> {
         }
 
         proof.0.iter().any(|step| {
-            matches!(step, Step::Leaf { key: leaf_key, value: leaf_value, .. } if *leaf_key == key && *leaf_value == value && *leaf_value != Hash::zero())
+            matches!(step, MerkleStep::Leaf { key: leaf_key, value: leaf_value, .. } if *leaf_key == key && *leaf_value == value && *leaf_value != Hash::zero())
         })
     }
 
@@ -283,10 +284,10 @@ impl<D: Digest> MerklePatriciaForestry<D> {
     fn insert_to_proof(&self, key: Hash, value: Hash) -> MerkleProof {
         let mut new_proof = self.proof.clone();
         // Remove any existing leaf with the same key
-        new_proof
-            .0
-            .retain(|step| !matches!(step, Step::Leaf { key: leaf_key, .. } if *leaf_key == key));
-        new_proof.0.push(Step::Leaf {
+        new_proof.0.retain(
+            |step| !matches!(step, MerkleStep::Leaf { key: leaf_key, .. } if *leaf_key == key),
+        );
+        new_proof.0.push(MerkleStep::Leaf {
             skip: 0,
             key,
             value,
@@ -310,7 +311,7 @@ impl<D: Digest> MerklePatriciaForestry<D> {
     fn mark_as_deleted(&self, key: Hash) -> MerkleProof {
         let mut new_proof = self.proof.clone();
         for step in new_proof.0.iter_mut() {
-            if let Step::Leaf {
+            if let MerkleStep::Leaf {
                 key: leaf_key,
                 value,
                 ..
@@ -339,11 +340,11 @@ impl<D: Digest> MerklePatriciaForestry<D> {
         let mut i = 0;
         while i < proof.0.len() - 1 {
             if let (
-                Step::Branch {
+                MerkleStep::Branch {
                     skip: skip1,
                     neighbors: neighbors1,
                 },
-                Step::Branch {
+                MerkleStep::Branch {
                     skip: skip2,
                     neighbors: neighbors2,
                 },
@@ -355,7 +356,7 @@ impl<D: Digest> MerklePatriciaForestry<D> {
                     // Merge the two branch nodes
                     let new_skip = skip1 + skip2 + 1;
                     let new_neighbors = neighbors2.clone();
-                    proof.0[i] = Step::Branch {
+                    proof.0[i] = MerkleStep::Branch {
                         skip: new_skip,
                         neighbors: new_neighbors,
                     };
@@ -384,17 +385,17 @@ impl<D: Digest> MerklePatriciaForestry<D> {
         let mut hasher = D::new();
         for step in &proof.0 {
             match step {
-                Step::Branch { neighbors, .. } => {
+                MerkleStep::Branch { neighbors, .. } => {
                     for neighbor in neighbors {
                         hasher.update(neighbor.as_ref());
                     }
                 }
-                Step::Fork { neighbor, .. } => {
+                MerkleStep::Fork { neighbor, .. } => {
                     hasher.update([neighbor.nibble]);
                     hasher.update(&neighbor.prefix);
                     hasher.update(neighbor.root.as_ref());
                 }
-                Step::Leaf { key, value, .. } => {
+                MerkleStep::Leaf { key, value, .. } => {
                     hasher.update(key.as_ref());
                     hasher.update(value.as_ref());
                 }
@@ -473,7 +474,7 @@ impl<D: Digest + 'static> CmRDT<MerkleProof> for MerklePatriciaForestry<D> {
 
 /// Represents a proof in the Merkle Patricia Forestry.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MerkleProof(Vec<Step>);
+pub struct MerkleProof(pub Vec<MerkleStep>);
 
 impl PartialOrd for MerkleProof {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
@@ -501,7 +502,7 @@ impl Arbitrary for MerkleProof {
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(max_depth: Self::Parameters) -> Self::Strategy {
-        vec(any::<Step>(), 0..=max_depth)
+        vec(any::<MerkleStep>(), 0..=max_depth)
             .prop_map(MerkleProof)
             .boxed()
     }
@@ -509,7 +510,7 @@ impl Arbitrary for MerkleProof {
 
 /// Represents a single step in a proof.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Step {
+pub enum MerkleStep {
     /// A branch node in the trie.
     Branch {
         /// The number of common prefix nibbles to skip.
@@ -535,32 +536,107 @@ pub enum Step {
     },
 }
 
-impl Arbitrary for Step {
+impl ToBytes for MerkleStep {
+    type Output = Vec<u8>;
+
+    fn to_bytes(&self) -> Self::Output {
+        match self {
+            MerkleStep::Branch { skip, neighbors } => {
+                let mut bytes = vec![0u8]; // 0 indicates Branch
+                bytes.extend_from_slice(&skip.to_be_bytes());
+                for neighbor in neighbors {
+                    bytes.extend_from_slice(neighbor.as_ref());
+                }
+                bytes
+            },
+            MerkleStep::Fork { skip, neighbor } => {
+                let mut bytes = vec![1u8]; // 1 indicates Fork
+                bytes.extend_from_slice(&skip.to_be_bytes());
+                bytes.extend(neighbor.to_bytes());
+                bytes
+            },
+            MerkleStep::Leaf { skip, key, value } => {
+                let mut bytes = vec![2u8]; // 2 indicates Leaf
+                bytes.extend_from_slice(&skip.to_be_bytes());
+                bytes.extend_from_slice(key.as_ref());
+                bytes.extend_from_slice(value.as_ref());
+                bytes
+            },
+        }
+    }
+}
+
+impl FromBytes for MerkleStep {
+    fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        if bytes.is_empty() {
+            return Err(Error::FailedDeserialization("Empty input".to_string()));
+        }
+
+        match bytes[0] {
+            0 => {
+                // Branch
+                if bytes.len() < 1 + std::mem::size_of::<usize>() + 4 * 32 {
+                    return Err(Error::FailedDeserialization("Invalid length for Branch".to_string()));
+                }
+                let skip = usize::from_be_bytes(bytes[1..1 + std::mem::size_of::<usize>()].try_into().unwrap());
+                let mut neighbors = [Hash::default(); 4];
+                for (i, neighbor) in neighbors.iter_mut().enumerate() {
+                    let start = 1 + std::mem::size_of::<usize>() + i * 32;
+                    *neighbor = Hash::from_slice(&bytes[start..start + 32]);
+                }
+                Ok(MerkleStep::Branch { skip, neighbors })
+            },
+            1 => {
+                // Fork
+                if bytes.len() < 1 + std::mem::size_of::<usize>() + 33 {
+                    return Err(Error::FailedDeserialization("Invalid length for Fork".to_string()));
+                }
+                let skip = usize::from_be_bytes(bytes[1..1 + std::mem::size_of::<usize>()].try_into().unwrap());
+                let neighbor = Neighbor::from_bytes(&bytes[1 + std::mem::size_of::<usize>()..])?;
+                Ok(MerkleStep::Fork { skip, neighbor })
+            },
+            2 => {
+                // Leaf
+                if bytes.len() < 1 + std::mem::size_of::<usize>() + 64 {
+                    return Err(Error::FailedDeserialization("Invalid length for Leaf".to_string()));
+                }
+                let skip = usize::from_be_bytes(bytes[1..1 + std::mem::size_of::<usize>()].try_into().unwrap());
+                let key = Hash::from_slice(&bytes[1 + std::mem::size_of::<usize>()..1 + std::mem::size_of::<usize>() + 32]);
+                let value = Hash::from_slice(&bytes[1 + std::mem::size_of::<usize>() + 32..1 + std::mem::size_of::<usize>() + 64]);
+                Ok(MerkleStep::Leaf { skip, key, value })
+            },
+            _ => Err(Error::FailedDeserialization("Invalid MerkleStep type".to_string())),
+        }
+    }
+}
+
+
+impl Arbitrary for MerkleStep {
     type Parameters = ();
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
         prop_oneof![
             (any::<usize>(), uniform4(any::<Hash>()))
-                .prop_map(|(skip, neighbors)| Step::Branch { skip, neighbors }),
+                .prop_map(|(skip, neighbors)| MerkleStep::Branch { skip, neighbors }),
             (any::<usize>(), any::<Neighbor>())
-                .prop_map(|(skip, neighbor)| Step::Fork { skip, neighbor }),
+                .prop_map(|(skip, neighbor)| MerkleStep::Fork { skip, neighbor }),
             (any::<usize>(), any::<Hash>(), any::<Hash>())
-                .prop_map(|(skip, key, value)| Step::Leaf { skip, key, value })
+                .prop_map(|(skip, key, value)| MerkleStep::Leaf { skip, key, value })
         ]
         .boxed()
     }
 }
 
-impl PartialOrd for Step {
+impl PartialOrd for MerkleStep {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         match (self, other) {
             (
-                Step::Branch {
+                MerkleStep::Branch {
                     skip: s1,
                     neighbors: n1,
                 },
-                Step::Branch {
+                MerkleStep::Branch {
                     skip: s2,
                     neighbors: n2,
                 },
@@ -569,11 +645,11 @@ impl PartialOrd for Step {
                 ord => ord,
             },
             (
-                Step::Fork {
+                MerkleStep::Fork {
                     skip: s1,
                     neighbor: n1,
                 },
-                Step::Fork {
+                MerkleStep::Fork {
                     skip: s2,
                     neighbor: n2,
                 },
@@ -582,12 +658,12 @@ impl PartialOrd for Step {
                 ord => ord,
             },
             (
-                Step::Leaf {
+                MerkleStep::Leaf {
                     skip: s1,
                     key: k1,
                     value: v1,
                 },
-                Step::Leaf {
+                MerkleStep::Leaf {
                     skip: s2,
                     key: k2,
                     value: v2,
@@ -600,10 +676,12 @@ impl PartialOrd for Step {
                 ord => ord,
             },
             // Define an arbitrary order between different Step variants
-            (Step::Branch { .. }, _) => Some(core::cmp::Ordering::Less),
-            (_, Step::Branch { .. }) => Some(core::cmp::Ordering::Greater),
-            (Step::Fork { .. }, Step::Leaf { .. }) => Some(core::cmp::Ordering::Less),
-            (Step::Leaf { .. }, Step::Fork { .. }) => Some(core::cmp::Ordering::Greater),
+            (MerkleStep::Branch { .. }, _) => Some(core::cmp::Ordering::Less),
+            (_, MerkleStep::Branch { .. }) => Some(core::cmp::Ordering::Greater),
+            (MerkleStep::Fork { .. }, MerkleStep::Leaf { .. }) => Some(core::cmp::Ordering::Less),
+            (MerkleStep::Leaf { .. }, MerkleStep::Fork { .. }) => {
+                Some(core::cmp::Ordering::Greater)
+            }
         }
     }
 }
@@ -612,11 +690,11 @@ impl PartialOrd for Step {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
 pub struct Neighbor {
     /// The nibble (4-bit value) of the neighbor.
-    nibble: u8,
+    pub nibble: u8,
     /// The remaining prefix of the neighbor's key.
-    prefix: Vec<u8>,
+    pub prefix: Vec<u8>,
     /// The hash digest of the neighbor's subtree.
-    root: Hash,
+    pub root: Hash,
 }
 
 impl Arbitrary for Neighbor {
@@ -631,6 +709,29 @@ impl Arbitrary for Neighbor {
                 root,
             })
             .boxed()
+    }
+}
+
+impl ToBytes for Neighbor {
+    type Output = Vec<u8>;
+
+    fn to_bytes(&self) -> Self::Output {
+        let mut bytes = vec![self.nibble];
+        bytes.extend_from_slice(&self.prefix);
+        bytes.extend_from_slice(self.root.as_ref());
+        bytes
+    }
+}
+
+impl FromBytes for Neighbor {
+    fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        if bytes.len() < 33 {
+            return Err(Error::FailedDeserialization("Invalid length for Neighbor".to_string()));
+        }
+        let nibble = bytes[0];
+        let prefix = bytes[1..bytes.len() - 32].to_vec();
+        let root = Hash::from_slice(&bytes[bytes.len() - 32..]);
+        Ok(Neighbor { nibble, prefix, root })
     }
 }
 
@@ -966,7 +1067,7 @@ mod tests {
                         trie: MerklePatriciaForestry<$digest>,
                         key: Vec<u8>,
                         value: u8,
-                        malicious_steps: Vec<Step>
+                        malicious_steps: Vec<MerkleStep>
                     ) {
                         // Skip the test if the trie is empty and there are no malicious steps
                         prop_assume!(!trie.is_empty() || !malicious_steps.is_empty());
