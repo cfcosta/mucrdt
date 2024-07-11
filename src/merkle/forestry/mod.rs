@@ -107,7 +107,7 @@ use std::marker::PhantomData;
 use digest::Digest;
 use proptest::prelude::*;
 
-use crate::{error::Error, prelude::*};
+use crate::prelude::*;
 
 mod proof;
 mod step;

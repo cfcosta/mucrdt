@@ -1,8 +1,8 @@
 use std::cmp::Ordering;
 use std::ops::{Deref, DerefMut};
 
-use proptest::{collection::vec, prelude::*};
 use digest::Digest;
+use proptest::{collection::vec, prelude::*};
 
 use super::Step;
 use crate::prelude::*;
@@ -212,5 +212,35 @@ impl Arbitrary for Proof {
 impl Default for Proof {
     fn default() -> Self {
         Proof(Vec::new())
+    }
+}
+impl FromBytes for Proof {
+    fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        let mut proof = Proof::default();
+        let mut cursor = 0;
+
+        while cursor < bytes.len() {
+            if cursor + 73 > bytes.len() {
+                return Err(Error::Deserialization("Incomplete step data".to_string()));
+            }
+
+            let step = Step::from_bytes(&bytes[cursor..cursor + 73])?;
+            proof.0.push(step);
+            cursor += 73;
+        }
+
+        Ok(proof)
+    }
+}
+
+impl ToBytes for Proof {
+    type Output = Vec<u8>;
+
+    fn to_bytes(&self) -> Self::Output {
+        let mut bytes = Vec::with_capacity(self.0.len() * 73);
+        for step in &self.0 {
+            bytes.extend_from_slice(&step.to_bytes());
+        }
+        bytes
     }
 }

@@ -116,10 +116,7 @@ impl<D: Digest> HashGraph<D> {
                             right,
                         )
                     } else {
-                        (
-                            left,
-                            self.insert_recursive(key_hash, value_hash, depth + 1),
-                        )
+                        (left, self.insert_recursive(key_hash, value_hash, depth + 1))
                     };
                     let combined_hash = Hash::combine::<D>(&new_left, &new_right);
                     self.proof.set(
@@ -160,14 +157,7 @@ impl<D: Digest> HashGraph<D> {
                                 (existing_hash, new_hash)
                             };
                             let combined_hash = Hash::combine::<D>(&left, &right);
-                            self.proof.set(
-                                depth,
-                                Step::Branch {
-                                    skip,
-                                    left,
-                                    right,
-                                },
-                            );
+                            self.proof.set(depth, Step::Branch { skip, left, right });
                             combined_hash
                         } else {
                             let (left, right) = if bit == 0 {
@@ -176,14 +166,7 @@ impl<D: Digest> HashGraph<D> {
                                 (existing_value, value_hash)
                             };
                             let combined_hash = Hash::combine::<D>(&left, &right);
-                            self.proof.set(
-                                depth,
-                                Step::Branch {
-                                    skip,
-                                    left,
-                                    right,
-                                },
-                            );
+                            self.proof.set(depth, Step::Branch { skip, left, right });
                             combined_hash
                         }
                     }

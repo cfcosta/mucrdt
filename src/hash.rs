@@ -5,8 +5,7 @@ use digest::Digest;
 use proptest::prelude::*;
 use proptest::strategy::BoxedStrategy;
 
-use crate::error::Result;
-use crate::prelude::{ToBytes, ToHex};
+use crate::{ToBytes, ToHex, error::Result};
 
 /// Custom Hash type containing the inner field
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
