@@ -67,14 +67,14 @@ impl FromBytes for Step {
                 let skip = usize::from_le_bytes(
                     bytes[1..1 + std::mem::size_of::<usize>()]
                         .try_into()
-                        .map_err(|_| Error::Deserialization("Failed to convert skip bytes".to_string()))?
+                        .map_err(|_| {
+                            Error::Deserialization("Failed to convert skip bytes".to_string())
+                        })?,
                 );
                 let left = Hash::from_slice(
                     &bytes[1 + std::mem::size_of::<usize>()..1 + std::mem::size_of::<usize>() + 32],
                 );
-                let right = Hash::from_slice(
-                    &bytes[1 + std::mem::size_of::<usize>() + 32..],
-                );
+                let right = Hash::from_slice(&bytes[1 + std::mem::size_of::<usize>() + 32..]);
                 Ok(Step::Branch { skip, left, right })
             }
             1 => {
@@ -87,7 +87,9 @@ impl FromBytes for Step {
                 let skip = usize::from_le_bytes(
                     bytes[1..1 + std::mem::size_of::<usize>()]
                         .try_into()
-                        .map_err(|_| Error::Deserialization("Failed to convert skip bytes".to_string()))?
+                        .map_err(|_| {
+                            Error::Deserialization("Failed to convert skip bytes".to_string())
+                        })?,
                 );
                 let key = Hash::from_slice(
                     &bytes[1 + std::mem::size_of::<usize>()..1 + std::mem::size_of::<usize>() + 32],
@@ -108,11 +110,7 @@ impl Arbitrary for Step {
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
-        let branch_strategy = (
-            any::<usize>(),
-            any::<Hash>(),
-            any::<Hash>(),
-        )
+        let branch_strategy = (any::<usize>(), any::<Hash>(), any::<Hash>())
             .prop_map(|(skip, left, right)| Step::Branch { skip, left, right });
 
         let leaf_strategy = (any::<usize>(), any::<Hash>(), any::<Hash>())
@@ -126,8 +124,16 @@ impl PartialOrd for Step {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         match (self, other) {
             (
-                Step::Branch { skip: s1, left: l1, right: r1 },
-                Step::Branch { skip: s2, left: l2, right: r2 },
+                Step::Branch {
+                    skip: s1,
+                    left: l1,
+                    right: r1,
+                },
+                Step::Branch {
+                    skip: s2,
+                    left: l2,
+                    right: r2,
+                },
             ) => s1
                 .partial_cmp(s2)
                 .and_then(|o| {
@@ -145,8 +151,16 @@ impl PartialOrd for Step {
                     }
                 }),
             (
-                Step::Leaf { skip: s1, key: k1, value: v1 },
-                Step::Leaf { skip: s2, key: k2, value: v2 },
+                Step::Leaf {
+                    skip: s1,
+                    key: k1,
+                    value: v1,
+                },
+                Step::Leaf {
+                    skip: s2,
+                    key: k2,
+                    value: v2,
+                },
             ) => s1
                 .partial_cmp(s2)
                 .and_then(|o| {

@@ -1,30 +1,32 @@
 mod error;
 
 mod hash;
-mod merkle;
+mod forestry;
+mod graph;
 
 pub mod prelude {
-    pub use crate::error::{ Error, Result };
-    pub use crate::hash::Hash;
-    pub use crate::merkle::{ forestry::{self, Forestry}, graph::{self, HashGraph} };
+    pub use digest::Digest;
 
-    pub use super::{ CmRDT, CvRDT, FromBytes, ToBytes, FromHex, ToHex };
+    pub use crate::{
+        error::{Error, Result},
+        hash::Hash,
+        forestry::{Forestry, Proof as ForestryProof, Step as ForestryStep},
+        graph::{HashGraph, Proof as GraphProof, Step as GraphStep},
+        CmRDT, CvRDT, FromBytes, FromHex, ToBytes, ToHex,
+        Neighbor
+    };
 }
 
+use crate::{ error::Result, hash::Hash, error::Error };
+use digest::Digest;
 use proptest::prelude::*;
-use crate::error::Result;
 
 #[doc(hidden)]
 /// This is a hidden module to make the macros defined on this crate available for the users.
 pub mod __dependencies {
-    pub use blake3::{Hash, Hasher};
-    pub use criterion;
-    pub use itertools;
     pub use paste;
     pub use proptest;
-    pub use rand;
     pub use test_strategy;
-    pub use thiserror::Error;
 }
 
 #[macro_export]
@@ -40,7 +42,6 @@ macro_rules! test_state_crdt_properties {
 
                 use super::$type;
 
-                #[cfg_attr(coverage_nightly, coverage(off))]
                 fn build_state(items: Vec<&$type>) -> Result<$type> {
                     items.into_iter().try_fold(<$type>::default(), |mut acc, el| {
                         acc.merge(el)?;
@@ -48,7 +49,6 @@ macro_rules! test_state_crdt_properties {
                     })
                 }
 
-                #[cfg_attr(coverage_nightly, coverage(off))]
                 #[test_strategy::proptest(fork = false)]
                 fn test_changes_are_applied(a: $type) {
                     let mut b = <$type>::default();
@@ -56,7 +56,6 @@ macro_rules! test_state_crdt_properties {
                     prop_assert_eq!(a, b);
                 }
 
-                #[cfg_attr(coverage_nightly, coverage(off))]
                 #[test_strategy::proptest(fork = false)]
                 fn test_imdepotence(mut a: $type, mut b: $type) {
                     a.merge(&b)?;
@@ -64,7 +63,6 @@ macro_rules! test_state_crdt_properties {
                     prop_assert_eq!(a, b);
                 }
 
-                #[cfg_attr(coverage_nightly, coverage(off))]
                 #[test_strategy::proptest(fork = false)]
                 fn test_commutativity(a: $type, b: $type) {
                     let ab = build_state(vec![&a, &b])?;
@@ -73,7 +71,6 @@ macro_rules! test_state_crdt_properties {
                     prop_assert_eq!(ab, ba);
                 }
 
-                #[cfg_attr(coverage_nightly, coverage(off))]
                 #[test_strategy::proptest(fork = false)]
                 fn test_associativity(a: $type, b: $type, c: $type) {
                     let ab = build_state(vec![&a, &b])?;
@@ -323,13 +320,11 @@ pub trait ToBytes {
         self.to_bytes().as_ref().to_vec()
     }
 
-    /// Hashes the value using the blake3 algorithm.
+    /// Hashes the value using the specified Digest algorithm.
     ///
     /// This is a convenience method, and automatically derived from `to_bytes`.
-    fn hash_bytes(&self) -> blake3::Hash {
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(self.to_bytes().as_ref());
-        hasher.finalize()
+    fn hash_bytes<D: Digest>(&self) -> crate::hash::Hash {
+        crate::hash::Hash::digest::<D>(self.to_bytes().as_ref())
     }
 
     /// Checks if the value (as bytes) is zero.
@@ -350,4 +345,58 @@ where
 
 pub trait ToHex {
     fn to_hex(&self) -> String;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
+pub struct Neighbor {
+    /// The nibble (4-bit value) of the neighbor.
+    pub nibble: u8,
+    /// The remaining prefix of the neighbor's key.
+    pub prefix: Vec<u8>,
+    /// The hash digest of the neighbor's subtree.
+    pub root: Hash,
+}
+
+impl Arbitrary for Neighbor {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
+        (any::<u8>(), any::<Vec<u8>>(), any::<Hash>())
+            .prop_map(|(nibble, prefix, root)| Neighbor {
+                nibble,
+                prefix,
+                root,
+            })
+            .boxed()
+    }
+}
+
+impl ToBytes for Neighbor {
+    type Output = Vec<u8>;
+
+    fn to_bytes(&self) -> Self::Output {
+        let mut bytes = vec![self.nibble];
+        bytes.extend_from_slice(&self.prefix);
+        bytes.extend_from_slice(self.root.as_ref());
+        bytes
+    }
+}
+
+impl FromBytes for Neighbor {
+    fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        if bytes.len() < 33 {
+            return Err(Error::Deserialization(
+                "Invalid length for Neighbor".to_string(),
+            ));
+        }
+        let nibble = bytes[0];
+        let prefix = bytes[1..bytes.len() - 32].to_vec();
+        let root = Hash::from_slice(&bytes[bytes.len() - 32..]);
+        Ok(Neighbor {
+            nibble,
+            prefix,
+            root,
+        })
+    }
 }

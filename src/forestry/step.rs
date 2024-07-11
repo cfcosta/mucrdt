@@ -2,7 +2,7 @@ use core::cmp::Ordering;
 
 use proptest::{array::uniform4, prelude::*};
 
-use crate::{merkle::Neighbor, prelude::*};
+use crate::prelude::*;
 
 /// Represents a single step in a proof.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -6,21 +6,37 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-blake2 = "0.10.6"
-blake3 = { version = "1.5.1", features = ["digest", "serde", "traits-preview"] }
-chrono = { version = "0.4.38", features = ["serde"] }
-criterion = "0.5.1"
+async-trait = "0.1.81"
 digest = "0.10.7"
-ed25519-dalek = { version = "2.1.1", features = ["signature", "serde", "rand_core"] }
 hex = { version = "0.4.3", features = ["serde"] }
-itertools = "0.13.0"
-owo-colors = "4.0.0"
+im = { version = "15.1.0", features = ["proptest", "rayon", "serde"] }
 paste = "1.0.15"
 proptest = "1.4.0"
-rand = { version = "0.8.5", features = ["serde"] }
-schnorrkel = "0.11.4"
-sha2 = "0.10.8"
-termgraph = "0.4.0"
 test-strategy = "0.3.1"
 thiserror = "1.0.61"
-tokio = { version = "1.38.0", features = ["full"] }
+tokio = { version = "1.38.0", features = ["rt", "macros"] }
+
+# Hash Functions
+blake2 = { version = "0.10.6", optional = true }
+blake3 = { version = "1.5.1", features = ["digest", "serde", "traits-preview"], optional = true }
+sha2 = { version = "0.10.8", optional = true }
+
+# Simulator Dependencies (example)
+crossterm = { version = "0.27.0", optional = true }
+noise = { version = "0.9.0", optional = true }
+owo-colors = { version = "4.0.0", optional = true }
+rand = { version = "0.8.5", features = ["serde"], optional = true }
+termgraph = { version = "0.4.0", optional = true }
+
+[features]
+default = ["blake3"]
+simulator = ["crossterm", "noise", "owo-colors", "tokio/full", "rand", "termgraph"]
+all_hashes = ["blake2", "blake3", "sha2"]
+blake2 = ["dep:blake2"]
+blake3 = ["dep:blake3"]
+sha2 = ["dep:sha2"]
+
+[[example]]
+name = "simulator"
+path = "examples/simulator.rs"
+required-features = ["simulator"]

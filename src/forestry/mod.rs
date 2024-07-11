@@ -528,14 +528,13 @@ impl FromBytes for Neighbor {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(feature = "blake3", feature = "blake2", feature = "sha2")))]
 mod tests {
     use super::*;
-    use paste::paste;
 
     macro_rules! generate_mpf_tests {
         ($digest:ty) => {
-            paste! {
+            paste::paste! {
                 #[allow(non_snake_case)]
                 mod [<$digest _tests>] {
                     use super::*;
@@ -902,12 +901,18 @@ mod tests {
         };
     }
 
+    #[cfg(feature = "blake3")]
     type Blake3 = blake3::Hasher;
+    #[cfg(feature = "blake2")]
     type Blake2s = blake2::Blake2s256;
+    #[cfg(feature = "sha2")]
     type Sha256 = sha2::Sha256;
 
+    #[cfg(feature = "blake3")]
     generate_mpf_tests!(Blake3);
+    #[cfg(feature = "blake2")]
     generate_mpf_tests!(Blake2s);
+    #[cfg(feature = "sha2")]
     generate_mpf_tests!(Sha256);
 
     #[test_strategy::proptest]

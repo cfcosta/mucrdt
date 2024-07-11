@@ -304,7 +304,7 @@ impl<D: Digest> HashGraph<D> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(feature = "blake3", feature = "blake2", feature = "sha2")))]
 mod tests {
     use super::*;
     use proptest::prelude::*;
@@ -455,11 +455,17 @@ mod tests {
         };
     }
 
+    #[cfg(feature = "blake3")]
     type Blake3 = blake3::Hasher;
+    #[cfg(feature = "blake2")]
     type Blake2s = blake2::Blake2s256;
+    #[cfg(feature = "sha2")]
     type Sha256 = sha2::Sha256;
 
+    #[cfg(feature = "blake3")]
     generate_hashgraph_tests!(Blake3);
+    #[cfg(feature = "blake2")]
     generate_hashgraph_tests!(Blake2s);
+    #[cfg(feature = "sha2")]
     generate_hashgraph_tests!(Sha256);
 }

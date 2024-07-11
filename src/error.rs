@@ -64,10 +64,3 @@ impl From<TryFromSliceError> for Error {
         Error::Deserialization(format!("invalid slice format: {}", error))
     }
 }
-
-impl From<ed25519_dalek::SignatureError> for Error {
-    #[cfg_attr(coverage_nightly, coverage(off))]
-    fn from(error: ed25519_dalek::SignatureError) -> Self {
-        Error::Deserialization(format!("invalid signature format: {}", error))
-    }
-}
