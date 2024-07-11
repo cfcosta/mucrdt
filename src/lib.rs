@@ -2,7 +2,6 @@ mod error;
 
 mod hash;
 mod forestry;
-mod graph;
 
 pub mod prelude {
     pub use digest::Digest;
@@ -11,7 +10,6 @@ pub mod prelude {
         error::{Error, Result},
         hash::Hash,
         forestry::{Forestry, Proof as ForestryProof, Step as ForestryStep},
-        graph::{HashGraph, Proof as GraphProof},
         CmRDT, CvRDT, FromBytes, FromHex, ToBytes, ToHex,
         Neighbor
     };
