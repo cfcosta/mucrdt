@@ -205,8 +205,8 @@ impl<D: Digest> Forestry<D> {
     ///
     /// # Returns
     ///
-    /// A Result indicating success or an Error if the operation fails.
-    pub fn insert(&mut self, key: &[u8], value: &[u8]) -> Result<(), Error> {
+    /// A Result containing the hash of the inserted leaf or an Error if the operation fails.
+    pub fn insert(&mut self, key: &[u8], value: &[u8]) -> Result<Hash, Error> {
         if key.is_empty() {
             return Err(Error::EmptyKeyOrValue);
         }
@@ -217,7 +217,7 @@ impl<D: Digest> Forestry<D> {
         self.proof = self.insert_to_proof(key_hash, value_hash);
         self.root = Self::calculate_root(&self.proof);
 
-        Ok(())
+        Ok(value_hash)
     }
 
     /// Removes an element from the trie.

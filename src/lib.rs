@@ -9,7 +9,7 @@ pub mod prelude {
     pub use crate::{
         error::{Error, Result},
         hash::Hash,
-        forestry::{Forestry, Proof as ForestryProof, Step as ForestryStep},
+        forestry::{Forestry, Proof, Step},
         CmRDT, CvRDT, FromBytes, FromHex, ToBytes, ToHex,
         Neighbor
     };
