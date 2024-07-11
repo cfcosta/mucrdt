@@ -11,7 +11,7 @@ pub mod prelude {
         error::{Error, Result},
         hash::Hash,
         forestry::{Forestry, Proof as ForestryProof, Step as ForestryStep},
-        graph::{HashGraph, Proof as GraphProof, Step as GraphStep},
+        graph::{HashGraph, Proof as GraphProof},
         CmRDT, CvRDT, FromBytes, FromHex, ToBytes, ToHex,
         Neighbor
     };
@@ -177,8 +177,6 @@ macro_rules! test_to_bytes {
     ($type:ty) => {
         $crate::__dependencies::paste::paste! {
             mod [<test_to_bytes_$type:snake>] {
-                use std::{ collections::hash_map::DefaultHasher, hash::Hasher };
-
                 use $crate::__dependencies::{
                     proptest::prelude::*,
                     test_strategy,
@@ -187,7 +185,7 @@ macro_rules! test_to_bytes {
                 use $crate::prelude::*;
                 use super::$type;
 
-                test_to_hex!($type);
+                $crate::test_to_hex!($type);
 
                 #[test]
                 fn test_default_is_zero() {
@@ -219,18 +217,14 @@ macro_rules! test_to_bytes {
 
                 #[test_strategy::proptest(fork = false)]
                 fn test_hash_consistency(a: $type, b: $type) {
-                    prop_assert_eq!(a == b, a.hash_bytes() == b.hash_bytes());
-                }
+                    #[cfg(feature = "blake3")]
+                    prop_assert_eq!(a == b, a.hash_bytes::<blake3::Hasher>() == b.hash_bytes::<blake3::Hasher>());
 
-                #[test_strategy::proptest(fork = false)]
-                fn test_std_hash_consistency(a: $type, b: $type) {
-                    let mut hasher_a = DefaultHasher::new();
-                    hasher_a.write(&a.to_bytes());
+                    #[cfg(feature = "blake2")]
+                    prop_assert_eq!(a == b, a.hash_bytes::<blake2::Blake2b>() == b.hash_bytes::<blake2::Blake2b>());
 
-                    let mut hasher_b = DefaultHasher::new();
-                    hasher_b.write(&b.to_bytes());
-
-                    prop_assert_eq!(a.hash_bytes() == b.hash_bytes(), hasher_a.finish() == hasher_b.finish());
+                    #[cfg(feature = "sha2")]
+                    prop_assert_eq!(a == b, a.hash_bytes::<sha2::Sha256>() == b.hash_bytes::<sha2::Sha256>());
                 }
             }
         }

@@ -4,12 +4,11 @@ use std::ops::{Deref, DerefMut};
 use digest::Digest;
 use proptest::{collection::vec, prelude::*};
 
-use super::Step;
-use crate::prelude::{ *, Hash };
+use crate::prelude::*;
 
 /// Represents a proof in the HashGraph.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Proof(Vec<Step>);
+pub struct Proof(Vec<Hash>);
 
 impl Proof {
     /// Creates a new, empty `Proof`.
@@ -18,7 +17,7 @@ impl Proof {
     ///
     /// # Returns
     ///
-    /// A new `Proof` instance with no steps.
+    /// A new `Proof` instance with no hashes.
     ///
     /// # Examples
     ///
@@ -32,28 +31,28 @@ impl Proof {
         Self::default()
     }
 
-    /// Returns a reference to the steps in the proof.
+    /// Returns a reference to the hashes in the proof.
     ///
     /// # Returns
     ///
-    /// A slice containing all the steps in the proof.
+    /// A slice containing all the hashes in the proof.
     ///
     /// # Examples
     ///
     /// ```
-    /// use your_crate::graph::{Proof, Step};
+    /// use your_crate::graph::Proof;
     ///
     /// let proof = Proof::new();
-    /// let steps: &[Step] = proof.steps();
-    /// assert!(steps.is_empty());
+    /// let hashes: &[Hash] = proof.hashes();
+    /// assert!(hashes.is_empty());
     /// ```
-    pub fn steps(&self) -> &[Step] {
+    pub fn hashes(&self) -> &[Hash] {
         &self.0
     }
 
     /// Returns the root hash of the proof.
     ///
-    /// The root hash is computed based on the last step in the proof. If the proof is empty, a default hash is returned.
+    /// The root hash is computed based on the last hash in the proof. If the proof is empty, a default hash is returned.
     ///
     /// # Type Parameters
     ///
@@ -66,11 +65,11 @@ impl Proof {
     /// # Examples
     ///
     /// ```
-    /// use your_crate::graph::{Proof, Step};
+    /// use your_crate::graph::Proof;
     /// use sha2::Sha256;
     ///
     /// let mut proof = Proof::new();
-    /// proof.push(Step::Leaf { value: Hash::default() });
+    /// proof.push(Hash::default());
     /// let root_hash = proof.root::<Sha256>();
     /// ```
     pub fn root<D: Digest>(&self) -> Hash {
@@ -79,33 +78,30 @@ impl Proof {
             return Hash::default();
         }
 
-        // Otherwise, return the hash of the last step
-        match self.last().unwrap() {
-            Step::Branch { left, right, .. } => Hash::combine::<D>(left, right),
-            Step::Leaf { value, .. } => *value,
-        }
+        // Otherwise, return the last hash
+        *self.last().unwrap()
     }
 
-    /// Returns a reference to the step at the given index.
+    /// Returns a reference to the hash at the given index.
     ///
     /// # Arguments
     ///
-    /// * `index` - The index of the step to retrieve.
+    /// * `index` - The index of the hash to retrieve.
     ///
     /// # Returns
     ///
-    /// An `Option` containing a reference to the `Step` at the given index, or `None` if the index is out of bounds.
+    /// An `Option` containing a reference to the `Hash` at the given index, or `None` if the index is out of bounds.
     ///
     /// # Examples
     ///
     /// ```
-    /// use your_crate::graph::{Proof, Step};
+    /// use your_crate::graph::Proof;
     ///
     /// let proof = Proof::new();
-    /// let step: Option<&Step> = proof.get(0);
-    /// assert!(step.is_none());
+    /// let hash: Option<&Hash> = proof.get(0);
+    /// assert!(hash.is_none());
     /// ```
-    pub fn get(&self, index: usize) -> Option<&Step> {
+    pub fn get(&self, index: usize) -> Option<&Hash> {
         self.0.get(index)
     }
 
@@ -118,45 +114,42 @@ impl Proof {
     /// # Examples
     ///
     /// ```
-    /// use your_crate::graph::{Proof, Step};
+    /// use your_crate::graph::Proof;
     ///
     /// let mut proof = Proof::new();
-    /// proof.push(Step::Leaf { value: Hash::default() });
-    /// proof.retain(|step| match step {
-    ///     Step::Leaf { .. } => true,
-    ///     _ => false,
-    /// });
-    /// assert_eq!(proof.steps().len(), 1);
+    /// proof.push(Hash::default());
+    /// proof.retain(|hash| !hash.is_zero());
+    /// assert!(proof.hashes().is_empty());
     /// ```
     pub fn retain<F>(&mut self, f: F)
     where
-        F: FnMut(&Step) -> bool,
+        F: FnMut(&Hash) -> bool,
     {
         self.0.retain(f);
     }
 
-    /// Removes and returns the step at the specified index.
+    /// Removes and returns the hash at the specified index.
     ///
     /// # Arguments
     ///
-    /// * `index` - The index of the step to remove.
+    /// * `index` - The index of the hash to remove.
     ///
     /// # Returns
     ///
-    /// The removed `Step` if the index is in bounds, or `None` if it is out of bounds.
+    /// The removed `Hash` if the index is in bounds, or `None` if it is out of bounds.
     ///
     /// # Examples
     ///
     /// ```
-    /// use your_crate::graph::{Proof, Step};
+    /// use your_crate::graph::Proof;
     ///
     /// let mut proof = Proof::new();
-    /// proof.push(Step::Leaf { value: Hash::default() });
-    /// let removed_step: Option<Step> = proof.remove(0);
-    /// assert!(removed_step.is_some());
+    /// proof.push(Hash::default());
+    /// let removed_hash: Option<Hash> = proof.remove(0);
+    /// assert!(removed_hash.is_some());
     /// assert!(proof.is_empty());
     /// ```
-    pub fn remove(&mut self, index: usize) -> Option<Step> {
+    pub fn remove(&mut self, index: usize) -> Option<Hash> {
         if index < self.0.len() {
             Some(self.0.remove(index))
         } else {
@@ -164,51 +157,51 @@ impl Proof {
         }
     }
 
-    /// Appends a step to the end of the proof.
+    /// Appends a hash to the end of the proof.
     ///
     /// # Arguments
     ///
-    /// * `step` - The `Step` to append to the proof.
+    /// * `hash` - The `Hash` to append to the proof.
     ///
     /// # Examples
     ///
     /// ```
-    /// use your_crate::graph::{Proof, Step};
+    /// use your_crate::graph::Proof;
     ///
     /// let mut proof = Proof::new();
-    /// proof.push(Step::Leaf { value: Hash::default() });
-    /// assert_eq!(proof.steps().len(), 1);
+    /// proof.push(Hash::default());
+    /// assert_eq!(proof.hashes().len(), 1);
     /// ```
-    pub fn push(&mut self, step: Step) {
-        self.0.push(step);
+    pub fn push(&mut self, hash: Hash) {
+        self.0.push(hash);
     }
 
     /// Extends the proof with the contents of an iterator.
     ///
     /// # Arguments
     ///
-    /// * `iter` - An iterator that yields `Step`s to be appended to the proof.
+    /// * `iter` - An iterator that yields `Hash`es to be appended to the proof.
     ///
     /// # Examples
     ///
     /// ```
-    /// use your_crate::graph::{Proof, Step};
+    /// use your_crate::graph::Proof;
     ///
     /// let mut proof = Proof::new();
-    /// let steps = vec![Step::Leaf { value: Hash::default() }];
-    /// proof.extend(steps);
-    /// assert_eq!(proof.steps().len(), 1);
+    /// let hashes = vec![Hash::default()];
+    /// proof.extend(hashes);
+    /// assert_eq!(proof.hashes().len(), 1);
     /// ```
-    pub fn extend<I: IntoIterator<Item = Step>>(&mut self, iter: I) {
+    pub fn extend<I: IntoIterator<Item = Hash>>(&mut self, iter: I) {
         self.0.extend(iter);
     }
 
-    /// Sets the step at the specified index to a new value.
+    /// Sets the hash at the specified index to a new value.
     ///
     /// # Arguments
     ///
-    /// * `index` - The index of the step to set.
-    /// * `step` - The new `Step` to set at the specified index.
+    /// * `index` - The index of the hash to set.
+    /// * `hash` - The new `Hash` to set at the specified index.
     ///
     /// # Panics
     ///
@@ -217,19 +210,19 @@ impl Proof {
     /// # Examples
     ///
     /// ```
-    /// use your_crate::graph::{Proof, Step};
+    /// use your_crate::graph::Proof;
     ///
     /// let mut proof = Proof::new();
-    /// proof.push(Step::Leaf { value: Hash::default() });
-    /// proof.set(0, Step::Leaf { value: Hash::default() });
+    /// proof.push(Hash::default());
+    /// proof.set(0, Hash::default());
     /// ```
-    pub fn set(&mut self, index: usize, step: Step) {
-        self.0[index] = step;
+    pub fn set(&mut self, index: usize, hash: Hash) {
+        self.0[index] = hash;
     }
 }
 
 impl Deref for Proof {
-    type Target = [Step];
+    type Target = [Hash];
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -242,20 +235,20 @@ impl DerefMut for Proof {
     }
 }
 
-impl From<Vec<Step>> for Proof {
-    fn from(steps: Vec<Step>) -> Self {
-        Proof(steps)
+impl From<Vec<Hash>> for Proof {
+    fn from(hashes: Vec<Hash>) -> Self {
+        Proof(hashes)
     }
 }
 
-impl From<Proof> for Vec<Step> {
+impl From<Proof> for Vec<Hash> {
     fn from(proof: Proof) -> Self {
         proof.0
     }
 }
 
 impl IntoIterator for Proof {
-    type Item = Step;
+    type Item = Hash;
     type IntoIter = std::vec::IntoIter<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -264,8 +257,8 @@ impl IntoIterator for Proof {
 }
 
 impl<'a> IntoIterator for &'a Proof {
-    type Item = &'a Step;
-    type IntoIter = std::slice::Iter<'a, Step>;
+    type Item = &'a Hash;
+    type IntoIter = std::slice::Iter<'a, Hash>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -273,8 +266,8 @@ impl<'a> IntoIterator for &'a Proof {
 }
 
 impl<'a> IntoIterator for &'a mut Proof {
-    type Item = &'a mut Step;
-    type IntoIter = std::slice::IterMut<'a, Step>;
+    type Item = &'a mut Hash;
+    type IntoIter = std::slice::IterMut<'a, Hash>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter_mut()
@@ -289,15 +282,15 @@ impl PartialOrd for Proof {
             ord => return ord,
         }
 
-        // If lengths are equal, compare each step
-        for (self_step, other_step) in self.iter().zip(other.iter()) {
-            match self_step.partial_cmp(other_step) {
+        // If lengths are equal, compare each hash
+        for (self_hash, other_hash) in self.iter().zip(other.iter()) {
+            match self_hash.partial_cmp(other_hash) {
                 Some(Ordering::Equal) => continue,
                 ord => return ord,
             }
         }
 
-        // If all steps are equal, the proofs are equal
+        // If all hashes are equal, the proofs are equal
         Some(Ordering::Equal)
     }
 }
@@ -307,7 +300,7 @@ impl Arbitrary for Proof {
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(max_depth: Self::Parameters) -> Self::Strategy {
-        vec(any::<Step>(), 0..=max_depth).prop_map(Proof).boxed()
+        vec(any::<Hash>(), 0..=max_depth).prop_map(Proof).boxed()
     }
 }
 
@@ -323,9 +316,9 @@ impl FromBytes for Proof {
         let mut cursor = 0;
 
         while cursor < bytes.len() {
-            let step = Step::from_bytes(&bytes[cursor..])?;
-            cursor += step.to_bytes().len();
-            proof.0.push(step);
+            let hash = Hash::from_bytes(&bytes[cursor..])?;
+            cursor += hash.to_bytes().len();
+            proof.0.push(hash);
         }
 
         Ok(proof)
@@ -337,8 +330,8 @@ impl ToBytes for Proof {
 
     fn to_bytes(&self) -> Self::Output {
         let mut bytes = Vec::new();
-        for step in &self.0 {
-            bytes.extend_from_slice(&step.to_bytes());
+        for hash in &self.0 {
+            bytes.extend_from_slice(&hash.to_bytes());
         }
         bytes
     }

@@ -4,7 +4,7 @@ use std::ops::{Deref, DerefMut};
 use super::Step;
 use proptest::{collection::vec, prelude::*};
 
-use crate::prelude::*;
+use crate::prelude::Hash;
 
 /// Represents a proof in the HashGraph.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,7 +59,7 @@ impl Proof {
     /// # Examples
     ///
     /// ```
-    /// use mucrdt::forestry::{Proof, Hash};
+    /// use mucrdt::{ forestry::Proof, prelude::Hash };
     ///
     /// let proof = Proof::new();
     /// let root_hash: Hash = proof.root();

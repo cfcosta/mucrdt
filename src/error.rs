@@ -35,6 +35,9 @@ pub enum Error {
 
     #[error("Unknown error: {0}")]
     Unknown(String),
+
+    #[error("Invalid length")]
+    InvalidLength,
 }
 
 impl From<hex::FromHexError> for Error {

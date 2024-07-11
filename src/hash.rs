@@ -1,11 +1,10 @@
 use std::fmt::{Display, Formatter};
-use std::hash::{Hash as StdHash, Hasher};
 
 use digest::Digest;
 use proptest::prelude::*;
 use proptest::strategy::BoxedStrategy;
 
-use crate::{error::Result, ToBytes, ToHex};
+use crate::prelude::*;
 
 /// Custom Hash type containing the inner field
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -33,12 +32,6 @@ impl Arbitrary for Hash {
     }
 }
 
-impl StdHash for Hash {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.hash(state);
-    }
-}
-
 impl Hash {
     /// Creates a new Hash from any type that can be converted into [u8; 32].
     pub fn new<T: Into<[u8; 32]>>(data: T) -> Self {
@@ -54,17 +47,6 @@ impl Hash {
     /// Returns a zero hash (all bytes set to 0).
     pub fn zero() -> Self {
         Self([0u8; 32])
-    }
-
-    /// Creates a new Hash from a hexadecimal string.
-    pub fn from_hex(hex: &str) -> Result<Self> {
-        let bytes = hex::decode(hex)?;
-
-        if bytes.len() != 32 {
-            return Err(hex::FromHexError::InvalidStringLength)?;
-        }
-
-        Ok(Self::from_slice(&bytes))
     }
 
     pub fn digest<D: Digest>(data: &[u8]) -> Self {
@@ -111,6 +93,17 @@ impl From<Hash> for [u8; 32] {
     }
 }
 
+impl FromBytes for Hash {
+    fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        if bytes.len() != 32 {
+            return Err(Error::InvalidLength);
+        }
+        let mut array = [0u8; 32];
+        array.copy_from_slice(bytes);
+        Ok(Hash(array))
+    }
+}
+
 impl ToBytes for Hash {
     type Output = [u8; 32];
 
@@ -119,8 +112,12 @@ impl ToBytes for Hash {
     }
 }
 
-impl ToHex for Hash {
-    fn to_hex(&self) -> String {
-        hex::encode(self.0)
-    }
+crate::impl_associate_bytes_types!(Hash);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    crate::test_to_bytes!(Hash);
+    crate::test_to_hex!(Hash);
 }
