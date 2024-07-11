@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::ops::{Deref, DerefMut};
 
 use super::Step;
-use proptest::{ prelude::*, collection::vec };
+use proptest::{collection::vec, prelude::*};
 
 use crate::prelude::*;
 
@@ -205,9 +205,7 @@ impl Arbitrary for Proof {
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(max_depth: Self::Parameters) -> Self::Strategy {
-        vec(any::<Step>(), 0..=max_depth)
-            .prop_map(Proof)
-            .boxed()
+        vec(any::<Step>(), 0..=max_depth).prop_map(Proof).boxed()
     }
 }
 

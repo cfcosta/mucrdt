@@ -1,8 +1,6 @@
 use proptest::prelude::*;
 
-pub use crate::{
-    merkle::*, error::*, hash::*,
-};
+pub use crate::{error::*, hash::*, merkle::*};
 
 pub trait CvRDT: Sized + Arbitrary + Default + Clone + PartialEq {
     fn merge(&mut self, other: &Self) -> Result<()>;

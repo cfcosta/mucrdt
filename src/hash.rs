@@ -6,6 +6,7 @@ use proptest::prelude::*;
 use proptest::strategy::BoxedStrategy;
 
 use crate::error::Result;
+use crate::prelude::{ToBytes, ToHex};
 
 /// Custom Hash type containing the inner field
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -108,5 +109,19 @@ impl AsMut<[u8]> for Hash {
 impl From<Hash> for [u8; 32] {
     fn from(val: Hash) -> Self {
         val.0
+    }
+}
+
+impl ToBytes for Hash {
+    type Output = [u8; 32];
+
+    fn to_bytes(&self) -> Self::Output {
+        self.0
+    }
+}
+
+impl ToHex for Hash {
+    fn to_hex(&self) -> String {
+        hex::encode(self.0)
     }
 }

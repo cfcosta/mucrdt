@@ -1,8 +1,8 @@
 use core::cmp::Ordering;
 
-use proptest::{ array::uniform4, prelude::* };
+use proptest::{array::uniform4, prelude::*};
 
-use crate::{ prelude::*, merkle::Neighbor };
+use crate::{merkle::Neighbor, prelude::*};
 
 /// Represents a single step in a proof.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -124,9 +124,7 @@ impl FromBytes for Step {
                 );
                 Ok(Step::Leaf { skip, key, value })
             }
-            _ => Err(Error::Deserialization(
-                "Invalid Step type".to_string(),
-            )),
+            _ => Err(Error::Deserialization("Invalid Step type".to_string())),
         }
     }
 }
@@ -199,9 +197,7 @@ impl PartialOrd for Step {
             (Step::Branch { .. }, _) => Some(Ordering::Less),
             (_, Step::Branch { .. }) => Some(Ordering::Greater),
             (Step::Fork { .. }, Step::Leaf { .. }) => Some(Ordering::Less),
-            (Step::Leaf { .. }, Step::Fork { .. }) => {
-                Some(Ordering::Greater)
-            }
+            (Step::Leaf { .. }, Step::Fork { .. }) => Some(Ordering::Greater),
         }
     }
 }

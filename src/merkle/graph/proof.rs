@@ -1,9 +1,10 @@
 use std::cmp::Ordering;
 use std::ops::{Deref, DerefMut};
 
-use super::Step;
-use proptest::{ prelude::*, collection::vec };
+use proptest::{collection::vec, prelude::*};
+use digest::Digest;
 
+use super::Step;
 use crate::prelude::*;
 
 /// Represents a proof in the HashGraph.
@@ -37,7 +38,7 @@ impl Proof {
     }
 
     /// Returns the root hash of the proof.
-    pub fn root(&self) -> Hash {
+    pub fn root<D: Digest>(&self) -> Hash {
         // If the proof is empty, return the default hash
         if self.is_empty() {
             return Hash::default();
@@ -45,7 +46,7 @@ impl Proof {
 
         // Otherwise, return the hash of the last step
         match self.last().unwrap() {
-            Step::Branch { skip: _, direction: _, sibling } => *sibling,
+            Step::Branch { left, right, .. } => Hash::combine::<D>(left, right),
             Step::Leaf { value, .. } => *value,
         }
     }
@@ -204,9 +205,7 @@ impl Arbitrary for Proof {
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(max_depth: Self::Parameters) -> Self::Strategy {
-        vec(any::<Step>(), 0..=max_depth)
-            .prop_map(Proof)
-            .boxed()
+        vec(any::<Step>(), 0..=max_depth).prop_map(Proof).boxed()
     }
 }
 

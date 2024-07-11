@@ -286,9 +286,8 @@ impl<D: Digest> Forestry<D> {
     fn insert_to_proof(&self, key: Hash, value: Hash) -> Proof {
         let mut new_proof = self.proof.clone();
         // Remove any existing leaf with the same key
-        new_proof.retain(
-            |step| !matches!(step, Step::Leaf { key: leaf_key, .. } if *leaf_key == key),
-        );
+        new_proof
+            .retain(|step| !matches!(step, Step::Leaf { key: leaf_key, .. } if *leaf_key == key));
         new_proof.push(Step::Leaf {
             skip: 0,
             key,
@@ -473,7 +472,6 @@ impl<D: Digest + 'static> CmRDT<Proof> for Forestry<D> {
         self.merge(&mpf)
     }
 }
-
 
 /// Represents a neighboring node in a fork step of a proof.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]

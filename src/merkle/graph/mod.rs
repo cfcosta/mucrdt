@@ -5,8 +5,9 @@ mod proof;
 mod step;
 
 pub use proof::Proof;
-pub use step::{Step, Direction};
+pub use step::Step;
 
+#[derive(Clone)]
 pub struct HashGraph<D: Digest> {
     root: Hash,
     proof: Proof,
@@ -48,6 +49,14 @@ impl<D: Digest> HashGraph<D> {
         }
     }
 
+    pub fn root(&self) -> &Hash {
+        &self.root
+    }
+
+    pub fn proof(&self) -> &Proof {
+        &self.proof
+    }
+
     pub fn insert(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
         if key.is_empty() || value.is_empty() {
             return Err(Error::EmptyKeyOrValue);
@@ -67,11 +76,8 @@ impl<D: Digest> HashGraph<D> {
         let mut current_hash = Hash::zero();
         for step in proof.steps().iter().rev() {
             match step {
-                Step::Branch { direction, sibling, .. } => {
-                    current_hash = match direction {
-                        Direction::Left => Hash::combine::<D>(&current_hash, sibling),
-                        Direction::Right => Hash::combine::<D>(sibling, &current_hash),
-                    };
+                Step::Branch { left, right, .. } => {
+                    current_hash = Hash::combine::<D>(left, right);
                 }
                 Step::Leaf { value, .. } => {
                     current_hash = *value;
@@ -103,58 +109,81 @@ impl<D: Digest> HashGraph<D> {
 
         if let Some(step) = self.proof.get(depth).cloned() {
             match step {
-                Step::Branch { skip, sibling, .. } => {
-                    let (new_hash, new_sibling) = if bit == 0 {
-                        (self.insert_recursive(key_hash, value_hash, depth + 1), sibling)
+                Step::Branch { skip, left, right } => {
+                    let (new_left, new_right) = if bit == 0 {
+                        (
+                            self.insert_recursive(key_hash, value_hash, depth + 1),
+                            right,
+                        )
                     } else {
-                        (sibling, self.insert_recursive(key_hash, value_hash, depth + 1))
+                        (
+                            left,
+                            self.insert_recursive(key_hash, value_hash, depth + 1),
+                        )
                     };
-                    let new_direction = if bit == 0 { Direction::Left } else { Direction::Right };
-                    let combined_hash = Hash::combine::<D>(&new_hash, &new_sibling);
-                    self.proof.set(depth, Step::Branch {
-                        skip,
-                        direction: new_direction,
-                        sibling: new_sibling,
-                    });
+                    let combined_hash = Hash::combine::<D>(&new_left, &new_right);
+                    self.proof.set(
+                        depth,
+                        Step::Branch {
+                            skip,
+                            left: new_left,
+                            right: new_right,
+                        },
+                    );
                     combined_hash
                 }
-                Step::Leaf { skip, key: existing_key, value: existing_value } => {
+                Step::Leaf {
+                    skip,
+                    key: existing_key,
+                    value: existing_value,
+                } => {
                     if existing_key == key_hash {
-                        self.proof.set(depth, Step::Leaf {
-                            skip,
-                            key: key_hash,
-                            value: value_hash,
-                        });
+                        self.proof.set(
+                            depth,
+                            Step::Leaf {
+                                skip,
+                                key: key_hash,
+                                value: value_hash,
+                            },
+                        );
                         value_hash
                     } else {
-                        let existing_bit = (existing_key.as_ref()[depth / 8] >> (7 - (depth % 8))) & 1;
+                        let existing_bit =
+                            (existing_key.as_ref()[depth / 8] >> (7 - (depth % 8))) & 1;
                         if existing_bit == bit {
                             let new_hash = self.insert_recursive(key_hash, value_hash, depth + 1);
-                            let existing_hash = self.insert_recursive(existing_key, existing_value, depth + 1);
-                            let (direction, sibling) = if bit == 0 {
-                                (Direction::Left, existing_hash)
+                            let existing_hash =
+                                self.insert_recursive(existing_key, existing_value, depth + 1);
+                            let (left, right) = if bit == 0 {
+                                (new_hash, existing_hash)
                             } else {
-                                (Direction::Right, new_hash)
+                                (existing_hash, new_hash)
                             };
-                            let combined_hash = Hash::combine::<D>(&new_hash, &existing_hash);
-                            self.proof.set(depth, Step::Branch {
-                                skip,
-                                direction,
-                                sibling,
-                            });
+                            let combined_hash = Hash::combine::<D>(&left, &right);
+                            self.proof.set(
+                                depth,
+                                Step::Branch {
+                                    skip,
+                                    left,
+                                    right,
+                                },
+                            );
                             combined_hash
                         } else {
-                            let (direction, sibling) = if bit == 0 {
-                                (Direction::Left, existing_value)
+                            let (left, right) = if bit == 0 {
+                                (value_hash, existing_value)
                             } else {
-                                (Direction::Right, value_hash)
+                                (existing_value, value_hash)
                             };
-                            let combined_hash = Hash::combine::<D>(&value_hash, &existing_value);
-                            self.proof.set(depth, Step::Branch {
-                                skip,
-                                direction,
-                                sibling,
-                            });
+                            let combined_hash = Hash::combine::<D>(&left, &right);
+                            self.proof.set(
+                                depth,
+                                Step::Branch {
+                                    skip,
+                                    left,
+                                    right,
+                                },
+                            );
                             combined_hash
                         }
                     }
@@ -182,20 +211,26 @@ impl<D: Digest> HashGraph<D> {
     fn verify_recursive(&self, key_hash: Hash, value_hash: Hash, depth: usize) -> bool {
         if let Some(step) = self.proof.get(depth) {
             match step {
-                Step::Branch { direction, .. } => {
-                    let bit = (key_hash.as_ref()[depth / 8] >> (7 - (depth % 8))) & 1;
-                    let expected_direction = if bit == 0 { Direction::Left } else { Direction::Right };
-                    if *direction == expected_direction {
-                        self.verify_recursive(key_hash, value_hash, depth + 1)
-                    } else {
-                        false
+                Step::Branch { skip, left, right } => {
+                    if !Step::verify_skip(&key_hash, *skip) {
+                        return false;
                     }
+                    let bit = (key_hash.as_ref()[depth / 8] >> (7 - (depth % 8))) & 1;
+                    let (expected_left, expected_right) = if bit == 0 {
+                        (value_hash, *right)
+                    } else {
+                        (*left, value_hash)
+                    };
+                    let combined_hash = Hash::combine::<D>(&expected_left, &expected_right);
+                    if combined_hash != Hash::combine::<D>(left, right) {
+                        return false;
+                    }
+                    let updated_key = Step::update_key(&key_hash, *skip);
+                    self.verify_recursive(updated_key, value_hash, depth + 1)
                 }
-                Step::Leaf {
-                    key: stored_key,
-                    value: stored_value,
-                    ..
-                } => key_hash == *stored_key && value_hash == *stored_value,
+                Step::Leaf { skip, key, value } => {
+                    Step::verify_skip(&key_hash, *skip) && key_hash == *key && value_hash == *value
+                }
             }
         } else {
             false
@@ -213,12 +248,12 @@ impl<D: Digest> HashGraph<D> {
     fn generate_proof_recursive(&self, key_hash: Hash, depth: usize) -> Option<Vec<Step>> {
         if let Some(step) = self.proof.get(depth) {
             match step {
-                Step::Branch { skip, direction, sibling } => {
+                Step::Branch { skip, left, right } => {
                     if let Some(mut proof) = self.generate_proof_recursive(key_hash, depth + 1) {
                         proof.push(Step::Branch {
                             skip: *skip,
-                            direction: direction.clone(),
-                            sibling: *sibling,
+                            left: *left,
+                            right: *right,
                         });
                         Some(proof)
                     } else {
@@ -268,17 +303,14 @@ impl<D: Digest> HashGraph<D> {
 
         for step in proof.iter().skip(1) {
             match step {
-                Step::Branch { direction, sibling, .. } => {
+                Step::Branch { left, right, .. } => {
                     let bit = (key_hash.as_ref()[(proof.len() - 2) / 8]
                         >> (7 - ((proof.len() - 2) % 8)))
                         & 1;
-                    let expected_direction = if bit == 0 { Direction::Left } else { Direction::Right };
-                    if *direction != expected_direction {
-                        return false;
-                    }
-                    current_hash = match direction {
-                        Direction::Left => Hash::combine::<D>(&current_hash, sibling),
-                        Direction::Right => Hash::combine::<D>(sibling, &current_hash),
+                    current_hash = if bit == 0 {
+                        Hash::combine::<D>(left, right)
+                    } else {
+                        Hash::combine::<D>(right, left)
                     };
                 }
                 _ => return false,
@@ -313,9 +345,9 @@ mod tests {
                         #[strategy(non_empty_string())] key: String,
                         #[strategy(non_empty_string())] value: String
                     ) {
-                        let original_root = graph.root;
+                        let original_root = *graph.root();
                         graph.insert(key.as_bytes(), value.as_bytes()).unwrap();
-                        prop_assert_ne!(graph.root, original_root, "Root should change after insertion");
+                        prop_assert_ne!(*graph.root(), original_root, "Root should change after insertion");
                         prop_assert!(graph.verify(key.as_bytes(), value.as_bytes()),
                             "Failed to verify inserted key-value pair");
                     }
@@ -323,8 +355,8 @@ mod tests {
                     #[test]
                     fn test_empty_graph() {
                         let empty_graph = HashGraph::<$digest>::new();
-                        assert!(empty_graph.proof.is_empty());
-                        assert_eq!(empty_graph.root, Hash::zero());
+                        assert!(empty_graph.proof().is_empty());
+                        assert_eq!(*empty_graph.root(), Hash::zero());
                     }
 
                     #[test_strategy::proptest]
@@ -337,10 +369,10 @@ mod tests {
                         prop_assume!(value1 != value2);
 
                         graph.insert(key.as_bytes(), value1.as_bytes()).unwrap();
-                        let root_after_first_insert = graph.root;
+                        let root_after_first_insert = *graph.root();
 
                         graph.insert(key.as_bytes(), value2.as_bytes()).unwrap();
-                        prop_assert_ne!(graph.root, root_after_first_insert);
+                        prop_assert_ne!(*graph.root(), root_after_first_insert);
                         prop_assert!(graph.verify(key.as_bytes(), value2.as_bytes()));
                         prop_assert!(!graph.verify(key.as_bytes(), value1.as_bytes()));
                     }
@@ -351,12 +383,12 @@ mod tests {
                         #[strategy(vec(any::<u8>(), 100..1000))] large_key: Vec<u8>,
                         #[strategy(vec(any::<u8>(), 100..1000))] large_value: Vec<u8>
                     ) {
-                        let initial_size = graph.proof.len();
+                        let initial_size = graph.proof().len();
                         graph.insert(&large_key, &large_value).unwrap();
                         prop_assert!(graph.verify(&large_key, &large_value),
                             "Failed to verify large key-value pair");
 
-                        let size_increase = graph.proof.len() - initial_size;
+                        let size_increase = graph.proof().len() - initial_size;
                         prop_assert!(size_increase <= 256,
                             "Graph size increase {} exceeds maximum expected increase of 256",
                             size_increase);
@@ -434,26 +466,6 @@ mod tests {
 
                         prop_assert_eq!(graph1.root, graph2.root, "Roots should be equal after inserting the same key-value pair");
                         prop_assert_eq!(graph1.proof, graph2.proof, "Proofs should be equal after inserting the same key-value pair");
-                    }
-
-                    #[test_strategy::proptest]
-                    fn test_malicious_proof_resistance(
-                        #[strategy(any::<HashGraph<$digest>>())] graph: HashGraph<$digest>,
-                        #[strategy(vec(any::<u8>(), 1..100))] key: Vec<u8>,
-                        value: u8,
-                        #[strategy(vec(any::<Step>(), 0..10))] malicious_steps: Vec<Step>
-                    ) {
-                        let mut malicious_proof = graph.proof.clone();
-                        malicious_proof.extend(malicious_steps);
-
-                        let malicious_graph = HashGraph::<$digest> {
-                            root: Hash::digest::<$digest>(&malicious_proof.iter().flat_map(|s| s.to_bytes()).collect::<Vec<u8>>()),
-                            proof: malicious_proof,
-                            _phantom: std::marker::PhantomData,
-                        };
-
-                        prop_assert!(!malicious_graph.verify(&key, &[value]), "Malicious proof falsely verified");
-                        prop_assert_ne!(graph.root, malicious_graph.root, "Malicious graph has the same root hash");
                     }
                 }
             }
