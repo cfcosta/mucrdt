@@ -52,6 +52,7 @@
 
             cargo-nextest
             cargo-watch
+            cargo-machete
           ];
         };
       }
