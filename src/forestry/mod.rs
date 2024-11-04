@@ -356,7 +356,7 @@ impl<D: Digest> Forestry<D> {
                 {
                     // Merge the two branch nodes
                     let new_skip = skip1 + skip2 + 1;
-                    let new_neighbors = neighbors2.clone();
+                    let new_neighbors = *neighbors2;
                     proof[i] = Step::Branch {
                         skip: new_skip,
                         neighbors: new_neighbors,

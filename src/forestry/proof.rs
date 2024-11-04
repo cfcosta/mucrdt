@@ -8,6 +8,7 @@ use crate::prelude::Hash;
 
 /// Represents a proof in the HashGraph.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Default)]
 pub struct Proof(Vec<Step>);
 
 impl Proof {
@@ -293,8 +294,3 @@ impl Arbitrary for Proof {
     }
 }
 
-impl Default for Proof {
-    fn default() -> Self {
-        Proof(Vec::new())
-    }
-}
