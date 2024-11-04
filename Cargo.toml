@@ -10,13 +10,12 @@ digest = "0.10.7"
 hex = { version = "0.4.3", features = ["serde"] }
 paste = "1.0.15"
 proptest = "1.4.0"
-test-strategy = "0.3.1"
+test-strategy = "0.4.0"
 thiserror = "1.0.61"
 
 # Hash Functions
 blake2 = { version = "0.10.6", optional = true }
-blake3 = { version = "1.5.1", features = [
-  "digest",
+blake3 = { version = "1.5.4", features = [
   "serde",
   "traits-preview",
 ], optional = true }
