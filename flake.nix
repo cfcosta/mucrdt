@@ -1,14 +1,10 @@
 {
-  description = "A collection of well-tested CRDT implementations in Rust.";
-
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
-
-    rust-dev-tools = {
-      url = "github:cfcosta/rust-dev-tools.nix";
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
-      inputs.flake-utils.follows = "flake-utils";
     };
   };
 
@@ -16,7 +12,7 @@
     {
       nixpkgs,
       flake-utils,
-      rust-dev-tools,
+      rust-overlay,
       ...
     }:
     flake-utils.lib.eachDefaultSystem (
@@ -24,19 +20,39 @@
       let
         pkgs = import nixpkgs {
           inherit system;
-          overlays = [ rust-dev-tools.overlays.default ];
+          overlays = [ (import rust-overlay) ];
+        };
+        inherit (pkgs)
+          makeRustPlatform
+          mkShell
+          rust-bin
+          ;
+
+        rust = rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+        rustPlatform = makeRustPlatform {
+          rustc = rust;
+          cargo = rust;
         };
 
-        rdt = rust-dev-tools.setup pkgs {
-          name = "µ";
-          rust = rust-dev-tools.version.fromToolchainFile ./rust-toolchain.toml;
-          dependencies = with pkgs; [ ];
+        packages.default = rustPlatform.buildRustPackage {
+          name = "mucrdt";
+          src = ./.;
+          cargoLock.lockFile = ./Cargo.lock;
+          doCheck = false;
         };
       in
       {
-        devShells.default = pkgs.mkShell {
-          inputsFrom = [ rdt.devShell ];
-          packages = with pkgs; [ ];
+        inherit packages;
+
+        devShells.default = mkShell {
+          name = "mucrdt";
+
+          buildInputs = with pkgs; [
+            rust
+
+            cargo-nextest
+            cargo-watch
+          ];
         };
       }
     );
