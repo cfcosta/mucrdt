@@ -53,6 +53,7 @@
             cargo-nextest
             cargo-watch
             cargo-machete
+            cargo-tarpaulin
           ];
         };
       }

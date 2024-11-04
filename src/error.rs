@@ -41,28 +41,28 @@ pub enum Error {
 }
 
 impl From<hex::FromHexError> for Error {
-    #[cfg_attr(coverage_nightly, coverage(off))]
+    #[coverage(off)]
     fn from(error: hex::FromHexError) -> Self {
         Error::Deserialization(format!("hex error: {}", error))
     }
 }
 
 impl From<ParseIntError> for Error {
-    #[cfg_attr(coverage_nightly, coverage(off))]
+    #[coverage(off)]
     fn from(error: ParseIntError) -> Self {
         Error::Deserialization(format!("parse int error: {}", error))
     }
 }
 
 impl From<TryFromIntError> for Error {
-    #[cfg_attr(coverage_nightly, coverage(off))]
+    #[coverage(off)]
     fn from(error: TryFromIntError) -> Self {
         Error::Deserialization(format!("invalid number format: {}", error))
     }
 }
 
 impl From<TryFromSliceError> for Error {
-    #[cfg_attr(coverage_nightly, coverage(off))]
+    #[coverage(off)]
     fn from(error: TryFromSliceError) -> Self {
         Error::Deserialization(format!("invalid slice format: {}", error))
     }

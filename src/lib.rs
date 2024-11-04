@@ -1,21 +1,22 @@
+#![feature(coverage_attribute)]
+
 mod error;
 
-mod hash;
 mod forestry;
+mod hash;
 
 pub mod prelude {
     pub use digest::Digest;
 
     pub use crate::{
         error::{Error, Result},
-        hash::Hash,
         forestry::{Forestry, Proof, Step},
-        CmRDT, CvRDT, FromBytes, FromHex, ToBytes, ToHex,
-        Neighbor
+        hash::Hash,
+        CmRDT, CvRDT, FromBytes, FromHex, Neighbor, ToBytes, ToHex,
     };
 }
 
-use crate::{ error::Result, hash::Hash, error::Error };
+use crate::{error::Error, error::Result, hash::Hash};
 use digest::Digest;
 use proptest::prelude::*;
 
@@ -392,3 +393,4 @@ impl FromBytes for Neighbor {
         })
     }
 }
+
